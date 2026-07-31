@@ -1,0 +1,37 @@
+# Cloudflare Tunnel — named tunnel (stable hostname).
+#
+# Setup (once, interactive — do not automate secrets into git):
+#   1. winget install --id Cloudflare.cloudflared -e
+#   2. cloudflared tunnel login
+#   3. cloudflared tunnel create echo
+#   4. cloudflared tunnel route dns echo echo-api.yourdomain.com
+#   5. Copy credentials JSON path printed by create (under %USERPROFILE%\.cloudflared\)
+#   6. cp deploy/cloudflared.config.named.yml.example deploy/cloudflared.config.yml
+#   7. Edit tunnel UUID + credentials-file + hostname below
+#   8. cloudflared tunnel --config deploy/cloudflared.config.yml run
+#      OR: MODE=config ./scripts/run_tunnel.sh
+#
+# Token alternative (no local credentials file):
+#   Zero Trust dashboard → Networks → Tunnels → Configure → install token
+#   export CLOUDFLARE_TUNNEL_TOKEN=...
+#   MODE=token ./scripts/run_tunnel.sh
+#
+# NEVER commit: deploy/cloudflared.config.yml, *.json credentials, tokens.
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: C:\Users\admin\.cloudflared\REPLACE_WITH_TUNNEL_UUID.json
+
+# Optional: protocol http2|quic
+# protocol: quic
+
+ingress:
+  # Stable public host for Echo API + WebSocket
+  - hostname: echo-api.yourdomain.com
+    service: http://127.0.0.1:8787
+    originRequest:
+      connectTimeout: 30s
+      # Long-lived WS turns (STT+LLM+TTS) — keep alive
+      keepAliveTimeout: 90s
+      disableChunkedEncoding: false
+  # Catch-all required
+  - service: http_status:404

@@ -1,0 +1,21 @@
+# Cloudflare Tunnel — quick / ad-hoc style (usually you don't need a file).
+# Prefer: cloudflared tunnel --url http://127.0.0.1:8787
+#
+# If you want a config file for a locally-created tunnel that still points
+# only at Echo, use the named template instead:
+#   deploy/cloudflared.config.named.yml.example
+#
+# This file documents the ingress shape for a temporary public URL.
+
+# tunnel: <optional-local-tunnel-uuid>
+# credentials-file: C:\Users\admin\.cloudflared\<tunnel-uuid>.json   # NOT in git
+
+ingress:
+  # Public hostname → local Echo FastAPI (HTTP + WS upgrade)
+  - hostname: echo-dev.example.com   # only for named DNS routes; quick tunnels ignore this
+    service: http://127.0.0.1:8787
+    originRequest:
+      # WebSocket-friendly defaults
+      noTLSVerify: false
+      connectTimeout: 30s
+  - service: http_status:404

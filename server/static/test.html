@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Echo — WS Test</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: #0a0a0a; color: #e8e8e8; font: 15px/1.45 system-ui, sans-serif;
+    }
+    .wrap { width: min(420px, 92vw); text-align: center; }
+    h1 { font-weight: 600; letter-spacing: 0.04em; font-size: 1.1rem; opacity: 0.85; }
+    #orb {
+      width: 160px; height: 160px; margin: 2rem auto; border-radius: 50%;
+      border: 0; cursor: pointer; background: radial-gradient(circle at 35% 30%, #3d7cff, #1a1a2e 55%, #0a0a0a);
+      box-shadow: 0 0 40px rgba(61,124,255,0.35); transition: transform .15s ease, box-shadow .15s;
+      color: #fff; font-weight: 600;
+    }
+    #orb:active, #orb.holding { transform: scale(1.08); box-shadow: 0 0 60px rgba(61,124,255,0.65); }
+    #orb.speaking { box-shadow: 0 0 70px rgba(120,220,180,0.55); }
+    #status { opacity: 0.7; min-height: 1.4em; }
+    #log {
+      text-align: left; margin-top: 1.5rem; max-height: 220px; overflow: auto;
+      background: #111; border: 1px solid #222; border-radius: 12px; padding: 12px;
+      font-size: 13px; white-space: pre-wrap;
+    }
+    input, button.secondary {
+      background: #151515; color: #eee; border: 1px solid #333; border-radius: 8px;
+      padding: 8px 12px; width: 100%; box-sizing: border-box;
+    }
+    .row { display: flex; gap: 8px; margin-top: 12px; }
+    button.secondary { width: auto; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ECHO · websocket test</h1>
+    <button id="orb" type="button">hold to talk</button>
+    <div id="status">connecting…</div>
+    <div class="row">
+      <input id="text" placeholder="or type a message" />
+      <button class="secondary" id="send" type="button">send</button>
+    </div>
+    <div id="log"></div>
+  </div>
+  <script>
+    const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+      + location.host + '/ws/converse';
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const orb = document.getElementById('orb');
+    let ws, mediaStream, audioCtx, processor, source, holding = false;
+    const chunks = [];
+
+    function log(msg) {
+      logEl.textContent += msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => { statusEl.textContent = 'connected — hold orb to talk'; log('ws open ' + wsUrl); };
+      ws.onclose = () => { statusEl.textContent = 'disconnected — retrying…'; setTimeout(connect, 1500); };
+      ws.onerror = (e) => log('ws error');
+      ws.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'ready') statusEl.textContent = 'ready';
+        if (msg.type === 'final_transcript') log('you: ' + msg.text + ` (${msg.stt_ms?.toFixed?.(0)}ms)`);
+        if (msg.type === 'assistant_text') log('echo: ' + msg.text);
+        if (msg.type === 'audio') {
+          orb.classList.add('speaking');
+          await playPcm16Base64(msg.pcm16, msg.sr || 24000);
+          orb.classList.remove('speaking');
+        }
+        if (msg.type === 'turn_end') {
+          const m = msg.metrics || {};
+          log(`metrics total=${m.total_ms?.toFixed?.(0)}ms llm1st=${m.llm_first_token_ms?.toFixed?.(0)} tts1st=${m.tts_first_audio_ms?.toFixed?.(0)}`);
+          statusEl.textContent = 'ready';
+        }
+        if (msg.type === 'error') log('error: ' + msg.message);
+      };
+    }
+
+    async function playPcm16Base64(b64, sr) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const i16 = new Int16Array(bytes.buffer);
+      const f32 = new Float32Array(i16.length);
+      for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+      const ctx = audioCtx || new AudioContext();
+      audioCtx = ctx;
+      const buf = ctx.createBuffer(1, f32.length, sr);
+      buf.copyToChannel(f32, 0);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start();
+      await new Promise((r) => { src.onended = r; });
+    }
+
+    function floatTo16Base64(float32) {
+      const i16 = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      const bytes = new Uint8Array(i16.buffer);
+      let s = '';
+      for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s);
+    }
+
+    async function startRec() {
+      if (holding) return;
+      holding = true;
+      orb.classList.add('holding');
+      statusEl.textContent = 'listening…';
+      chunks.length = 0;
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1, echoCancellation: true, noiseSuppression: true
+      }});
+      audioCtx = audioCtx || new AudioContext({ sampleRate: 16000 });
+      source = audioCtx.createMediaStreamSource(mediaStream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (e) => {
+        const data = e.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(data));
+        if (ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: 'audio', sr: audioCtx.sampleRate,
+            pcm16: floatTo16Base64(data)
+          }));
+        }
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    }
+
+    function stopRec() {
+      if (!holding) return;
+      holding = false;
+      orb.classList.remove('holding');
+      statusEl.textContent = 'processing…';
+      try { processor && processor.disconnect(); } catch {}
+      try { source && source.disconnect(); } catch {}
+      try { mediaStream && mediaStream.getTracks().forEach(t => t.stop()); } catch {}
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'end_utt' }));
+    }
+
+    orb.addEventListener('mousedown', startRec);
+    orb.addEventListener('mouseup', stopRec);
+    orb.addEventListener('mouseleave', stopRec);
+    orb.addEventListener('touchstart', (e) => { e.preventDefault(); startRec(); }, { passive: false });
+    orb.addEventListener('touchend', (e) => { e.preventDefault(); stopRec(); });
+
+    document.getElementById('send').onclick = () => {
+      const t = document.getElementById('text').value.trim();
+      if (!t || !ws || ws.readyState !== 1) return;
+      ws.send(JSON.stringify({ type: 'text', text: t }));
+      document.getElementById('text').value = '';
+      statusEl.textContent = 'processing…';
+    };
+
+    connect();
+  </script>
+</body>
+</html>

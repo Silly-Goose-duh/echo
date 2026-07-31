@@ -1,0 +1,53 @@
+# Expose local Echo server (:8787) via Cloudflare Tunnel (PowerShell).
+#
+# Copy:
+#   Copy-Item scripts\run_tunnel.ps1.example scripts\run_tunnel.ps1
+#
+# Modes (env MODE or -Mode):
+#   quick  — ephemeral trycloudflare.com URL (default)
+#   token  — named tunnel via $env:CLOUDFLARE_TUNNEL_TOKEN
+#   config — named tunnel via deploy/cloudflared.config.yml
+#
+# Prereq: server on 127.0.0.1:8787  →  .\scripts\run_server.ps1
+
+param(
+    [ValidateSet("quick", "token", "config")]
+    [string]$Mode = $(if ($env:MODE) { $env:MODE } else { "quick" }),
+    [string]$LocalUrl = $(if ($env:LOCAL_URL) { $env:LOCAL_URL } else { "http://127.0.0.1:8787" })
+)
+
+$ErrorActionPreference = "Stop"
+$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+
+if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
+    Write-Error @"
+cloudflared not on PATH.
+  winget install --id Cloudflare.cloudflared -e
+  Or download: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+"@
+}
+
+Write-Host "[echo-tunnel] mode=$Mode local=$LocalUrl"
+
+switch ($Mode) {
+    "quick" {
+        & cloudflared tunnel --url $LocalUrl
+    }
+    "token" {
+        if (-not $env:CLOUDFLARE_TUNNEL_TOKEN) {
+            Write-Error "Set CLOUDFLARE_TUNNEL_TOKEN from Cloudflare Zero Trust → Tunnels"
+        }
+        & cloudflared tunnel run --token $env:CLOUDFLARE_TUNNEL_TOKEN
+    }
+    "config" {
+        $Cfg = if ($env:CLOUDFLARED_CONFIG) {
+            $env:CLOUDFLARED_CONFIG
+        } else {
+            Join-Path $Root "deploy\cloudflared.config.yml"
+        }
+        if (-not (Test-Path $Cfg)) {
+            Write-Error "Missing $Cfg — copy deploy\cloudflared.config.named.yml.example"
+        }
+        & cloudflared tunnel --config $Cfg run
+    }
+}

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Expose local Echo server (:8787) via Cloudflare Tunnel.
+#
+# Copy this file (do not commit secrets):
+#   cp scripts/run_tunnel.sh.example scripts/run_tunnel.sh
+#   chmod +x scripts/run_tunnel.sh
+#
+# Option A — Quick Tunnel (ephemeral URL, no Cloudflare account DNS setup):
+#   MODE=quick ./scripts/run_tunnel.sh
+#   cloudflared prints a https://*.trycloudflare.com URL.
+#   Frontend WSS: wss://<that-host>/ws/converse
+#
+# Option B — Named tunnel (stable hostname; token from Zero Trust dashboard):
+#   export CLOUDFLARE_TUNNEL_TOKEN='eyJ...'   # never commit
+#   MODE=token ./scripts/run_tunnel.sh
+#
+# Option C — Named tunnel via local config YAML:
+#   cp deploy/cloudflared.config.named.yml.example deploy/cloudflared.config.yml
+#   # fill tunnel id + credentials-file path (credentials stay outside git)
+#   MODE=config ./scripts/run_tunnel.sh
+#
+# Prereq: Echo server already listening on 127.0.0.1:8787
+#   ./scripts/run_server.sh
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${MODE:-quick}"
+LOCAL_URL="${LOCAL_URL:-http://127.0.0.1:8787}"
+
+if ! command -v cloudflared >/dev/null 2>&1; then
+  echo "error: cloudflared not on PATH" >&2
+  echo "  Windows: winget install --id Cloudflare.cloudflared -e" >&2
+  echo "  Or: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" >&2
+  exit 1
+fi
+
+echo "[echo-tunnel] mode=$MODE local=$LOCAL_URL"
+
+case "$MODE" in
+  quick)
+    # Ephemeral public URL. Good for smoke tests. URL changes every run.
+    exec cloudflared tunnel --url "$LOCAL_URL"
+    ;;
+  token)
+    if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
+      echo "error: set CLOUDFLARE_TUNNEL_TOKEN (from Cloudflare Zero Trust → Tunnels → configure)" >&2
+      exit 1
+    fi
+    exec cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN"
+    ;;
+  config)
+    CFG="${CLOUDFLARED_CONFIG:-$ROOT/deploy/cloudflared.config.yml}"
+    if [[ ! -f "$CFG" ]]; then
+      echo "error: missing $CFG — copy deploy/cloudflared.config.named.yml.example" >&2
+      exit 1
+    fi
+    exec cloudflared tunnel --config "$CFG" run
+    ;;
+  *)
+    echo "error: unknown MODE=$MODE (use quick|token|config)" >&2
+    exit 1
+    ;;
+esac
