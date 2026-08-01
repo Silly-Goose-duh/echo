@@ -25,7 +25,8 @@ export function Waveform({ state, levels }: Props) {
 
   return (
     <div
-      className="flex h-10 w-full max-w-xs items-end justify-center gap-[3px]"
+      className="flex h-8 w-full max-w-[15rem] items-end justify-center gap-[3px]
+        opacity-90 sm:h-10 sm:max-w-xs"
       aria-hidden
     >
       {bars.map((level, i) => {
@@ -33,7 +34,7 @@ export function Waveform({ state, levels }: Props) {
         return (
           <motion.span
             key={i}
-            className="w-[3px] rounded-full origin-bottom"
+            className="w-[3px] origin-bottom rounded-full"
             style={{
               background:
                 state === "speaking"
@@ -43,7 +44,7 @@ export function Waveform({ state, levels }: Props) {
                     : "rgba(255,255,255,0.12)",
             }}
             animate={{
-              height: `${8 + h * 28}px`,
+              height: `${8 + h * 24}px`,
               opacity: active ? 0.85 + h * 0.15 : 0.35,
             }}
             transition={

@@ -42,8 +42,8 @@ def stream_chat(
         model=s.llm_model,
         messages=messages,  # type: ignore[arg-type]
         stream=True,
-        temperature=0.7,
-        max_tokens=256,
+        temperature=0.8,
+        max_tokens=s.llm_max_tokens,
     )
     for chunk in stream:
         choice = chunk.choices[0] if chunk.choices else None
@@ -65,8 +65,8 @@ async def astream_chat(
         model=s.llm_model,
         messages=messages,  # type: ignore[arg-type]
         stream=True,
-        temperature=0.7,
-        max_tokens=256,
+        temperature=0.8,
+        max_tokens=s.llm_max_tokens,
     )
     async for chunk in stream:
         choice = chunk.choices[0] if chunk.choices else None

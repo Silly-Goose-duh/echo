@@ -27,22 +27,22 @@ export function SettingsPanel({
   disabled,
 }: Props) {
   return (
-    <div className="w-full max-w-xs">
+    <div className="relative shrink-0">
       <button
         type="button"
         onClick={onToggleOpen}
         aria-expanded={open}
-        className="mx-auto flex items-center gap-2 rounded-full border border-white/[0.08]
-          px-4 py-1.5 text-[11px] tracking-wide text-zinc-500 transition
-          hover:border-white/20 hover:text-zinc-300"
+        className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/40
+          px-3.5 py-2 text-[11px] tracking-wide text-zinc-400 backdrop-blur-md transition
+          hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-4"
       >
         <span
-          className={`h-1.5 w-1.5 rounded-full transition-colors ${
+          className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
             micActive ? "bg-[#638cff]" : "bg-white/20"
           }`}
           aria-hidden
         />
-        <span>
+        <span className="max-w-[9rem] truncate">
           {voiceLabel(voice)}
           {openMic ? " · open mic" : ""}
         </span>
@@ -60,13 +60,16 @@ export function SettingsPanel({
         {open && (
           <motion.div
             key="settings"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
-            className="overflow-hidden"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="absolute right-0 top-full z-40 mt-2 w-[min(20rem,calc(100vw-2rem))]"
           >
-            <div className="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <div
+              className="rounded-2xl border border-white/[0.07] bg-black/75 p-4
+                backdrop-blur-xl"
+            >
               <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                 Voice
               </p>
@@ -79,7 +82,7 @@ export function SettingsPanel({
                       type="button"
                       disabled={disabled}
                       onClick={() => onVoiceChange(v.id)}
-                      className={`rounded-lg px-2.5 py-2 text-left transition disabled:opacity-40
+                      className={`rounded-lg px-2.5 py-2.5 text-left transition disabled:opacity-40
                         ${
                           selected
                             ? "bg-[#3d6ef5]/15 text-zinc-100 ring-1 ring-[#638cff]/50"
@@ -103,7 +106,7 @@ export function SettingsPanel({
                   disabled={disabled}
                   onClick={() => onOpenMicChange(!openMic)}
                   className="flex w-full items-center justify-between gap-3 rounded-lg
-                    px-1 py-1 text-left transition disabled:opacity-40
+                    px-1 py-2 text-left transition disabled:opacity-40
                     hover:text-zinc-200"
                 >
                   <span>
@@ -113,7 +116,7 @@ export function SettingsPanel({
                     <span className="block text-[10px] text-zinc-600">
                       {openMic
                         ? "auto-detects end of speech"
-                        : "hold the orb to talk"}
+                        : "tap the orb to talk"}
                     </span>
                   </span>
                   <span

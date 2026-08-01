@@ -13,39 +13,26 @@ export function Transcript({ entries }: Props) {
   const count = entries.length;
 
   return (
-    <div className="w-full max-w-md">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between rounded-xl border border-white/[0.06]
-          bg-white/[0.03] px-4 py-3 text-left text-sm text-zinc-300
-          transition hover:bg-white/[0.05]"
-      >
-        <span className="tracking-wide">
-          Transcript
-          {count > 0 && (
-            <span className="ml-2 text-zinc-500">({count})</span>
-          )}
-        </span>
-        <span className="text-zinc-500">{open ? "▾" : "▸"}</span>
-      </button>
-
+    <div className="relative min-w-0 flex-1">
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
             key="drawer"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className="overflow-hidden"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="absolute bottom-full left-0 mb-2 w-[min(24rem,calc(100vw-2rem))]"
           >
             <div
-              className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-white/[0.06]
-                bg-[#111] px-4 py-3 text-[13px] leading-relaxed"
+              className="max-h-[45vh] overflow-y-auto rounded-2xl border border-white/[0.07]
+                bg-black/75 px-4 py-3 text-[13px] leading-relaxed backdrop-blur-xl
+                sm:max-h-64"
             >
               {count === 0 ? (
-                <p className="text-zinc-500">No turns yet. Hold the orb to talk.</p>
+                <p className="text-zinc-500">
+                  Nothing yet. Tap the orb whenever you&apos;re ready.
+                </p>
               ) : (
                 <ul className="space-y-3">
                   {entries.map((e) => (
@@ -79,6 +66,26 @@ export function Transcript({ entries }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex max-w-full items-center gap-2 rounded-full border border-white/[0.08]
+          bg-black/40 px-4 py-2.5 text-xs tracking-wide text-zinc-400 backdrop-blur-md
+          transition hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-5"
+      >
+        <span className="truncate">Transcript</span>
+        {count > 0 && <span className="text-zinc-600">{count}</span>}
+        <motion.span
+          aria-hidden
+          animate={{ rotate: open ? 0 : 180 }}
+          transition={{ duration: 0.2 }}
+          className="text-zinc-600"
+        >
+          ▾
+        </motion.span>
+      </button>
     </div>
   );
 }

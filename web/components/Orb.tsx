@@ -5,41 +5,53 @@ import type { OrbState } from "@/lib/protocol";
 
 type Props = {
   state: OrbState;
-  onPressStart: () => void;
-  onPressEnd: () => void;
+  /** Toggle handler — fired once per tap/click (mouse and touch). */
+  onToggle: () => void;
+  /** True while the tap-to-talk mic is open (ignored in open-mic mode). */
+  listening: boolean;
   disabled?: boolean;
-  /** Override the idle caption (e.g. when open-mic/VAD is on). */
+  /** Override the caption (e.g. when open-mic/VAD is on). */
   idleLabel?: string;
+  /** Passive orb: open-mic mode drives state on its own. */
+  passive?: boolean;
 };
 
 const labels: Record<OrbState, string> = {
-  idle: "hold to talk",
-  listening: "listening…",
+  idle: "tap to talk",
+  listening: "tap to stop",
   processing: "thinking…",
   speaking: "speaking",
 };
 
 export function Orb({
   state,
-  onPressStart,
-  onPressEnd,
+  onToggle,
+  listening,
   disabled,
   idleLabel,
+  passive,
 }: Props) {
   const isListening = state === "listening";
   const isSpeaking = state === "speaking";
   const isProcessing = state === "processing";
-  const caption =
-    state === "idle" && idleLabel ? idleLabel : labels[state];
+
+  const caption = passive
+    ? state === "idle" && idleLabel
+      ? idleLabel
+      : labels[state]
+    : listening
+      ? "tap to stop"
+      : state === "idle"
+        ? (idleLabel ?? labels.idle)
+        : labels[state];
 
   return (
-    <div className="relative flex flex-col items-center gap-6 select-none">
+    <div className="relative flex select-none flex-col items-center gap-6 sm:gap-7">
       {/* Soft ambient glow */}
       <motion.div
-        className="pointer-events-none absolute rounded-full"
+        className="pointer-events-none absolute left-1/2 top-[110px] h-[240px] w-[240px]
+          -translate-x-1/2 -translate-y-1/2 rounded-full sm:top-[130px] sm:h-[320px] sm:w-[320px]"
         style={{
-          width: 280,
-          height: 280,
           background:
             "radial-gradient(circle, rgba(99,140,255,0.22) 0%, transparent 70%)",
         }}
@@ -54,17 +66,20 @@ export function Orb({
         }
       />
 
-      {/* Speaking ripples */}
-      {isSpeaking &&
+      {/* Listening / speaking ripples */}
+      {(isSpeaking || isListening) &&
         [0, 1, 2].map((i) => (
           <motion.div
             key={i}
-            className="pointer-events-none absolute rounded-full border border-[#7ee0b8]/40"
-            style={{ width: 200, height: 200 }}
+            className={`pointer-events-none absolute left-1/2 top-[110px] h-[160px] w-[160px]
+              -translate-x-1/2 -translate-y-1/2 rounded-full border sm:top-[130px]
+              sm:h-[210px] sm:w-[210px] ${
+                isSpeaking ? "border-[#7ee0b8]/40" : "border-[#8fb0ff]/40"
+              }`}
             initial={{ scale: 0.85, opacity: 0.55 }}
             animate={{ scale: 1.55, opacity: 0 }}
             transition={{
-              duration: 1.8,
+              duration: isSpeaking ? 1.8 : 2.2,
               repeat: Infinity,
               delay: i * 0.55,
               ease: "easeOut",
@@ -76,13 +91,16 @@ export function Orb({
         type="button"
         disabled={disabled}
         aria-label={caption}
-        className="relative z-10 h-[200px] w-[200px] rounded-full border-0 outline-none
-          focus-visible:ring-2 focus-visible:ring-[#638cff]/60 focus-visible:ring-offset-2
-          focus-visible:ring-offset-[#0A0A0A] disabled:cursor-not-allowed disabled:opacity-50
-          touch-none cursor-pointer"
+        aria-pressed={passive ? undefined : listening}
+        className="relative z-10 h-[160px] w-[160px] cursor-pointer touch-manipulation
+          rounded-full border-0 outline-none focus-visible:ring-2
+          focus-visible:ring-[#638cff]/60 focus-visible:ring-offset-2
+          focus-visible:ring-offset-[#0A0A0A] disabled:cursor-not-allowed
+          disabled:opacity-50 sm:h-[200px] sm:w-[200px] lg:h-[220px] lg:w-[220px]"
         style={{
-          background:
-            "radial-gradient(circle at 35% 30%, #6b9bff 0%, #3d6ef5 28%, #1a1a2e 62%, #0c0c14 100%)",
+          background: listening
+            ? "radial-gradient(circle at 35% 30%, #9dbcff 0%, #4f7dff 30%, #1d2440 64%, #0c0c14 100%)"
+            : "radial-gradient(circle at 35% 30%, #6b9bff 0%, #3d6ef5 28%, #1a1a2e 62%, #0c0c14 100%)",
           boxShadow: isListening
             ? "0 0 80px rgba(99,140,255,0.7), inset 0 0 40px rgba(255,255,255,0.08)"
             : isSpeaking
@@ -90,30 +108,20 @@ export function Orb({
               : "0 0 48px rgba(61,110,245,0.4), inset 0 0 36px rgba(255,255,255,0.05)",
         }}
         animate={{
-          scale: isListening ? 1.1 : isProcessing ? [1, 1.03, 1] : 1,
+          scale: isListening ? 1.06 : isProcessing ? [1, 1.03, 1] : 1,
         }}
         transition={
           isProcessing
             ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
             : { type: "spring", stiffness: 320, damping: 22 }
         }
-        onMouseDown={(e) => {
-          e.preventDefault();
-          if (!disabled) onPressStart();
-        }}
-        onMouseUp={() => onPressEnd()}
-        onMouseLeave={() => onPressEnd()}
-        onTouchStart={(e) => {
-          e.preventDefault();
-          if (!disabled) onPressStart();
-        }}
-        onTouchEnd={(e) => {
-          e.preventDefault();
-          onPressEnd();
+        whileTap={disabled ? undefined : { scale: 0.96 }}
+        onClick={() => {
+          if (!disabled) onToggle();
         }}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {/* Inner idle pulse ring */}
+        {/* Idle pulse ring */}
         {state === "idle" && (
           <motion.span
             className="pointer-events-none absolute inset-3 rounded-full border border-white/10"
@@ -121,10 +129,24 @@ export function Orb({
             transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
           />
         )}
+
+        {/* Stop glyph while capturing (tap-to-talk only) */}
+        {listening && !passive && (
+          <motion.span
+            className="pointer-events-none absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2
+              -translate-y-1/2 rounded-[7px] bg-white/85 sm:h-7 sm:w-7"
+            initial={{ opacity: 0, scale: 0.7 }}
+            animate={{ opacity: [0.7, 1, 0.7], scale: 1 }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+          />
+        )}
+
         <span className="sr-only">{caption}</span>
       </motion.button>
 
-      <p className="text-sm tracking-wide text-zinc-400">{caption}</p>
+      <p className="text-[13px] tracking-[0.14em] text-zinc-400 sm:text-sm">
+        {caption}
+      </p>
     </div>
   );
 }

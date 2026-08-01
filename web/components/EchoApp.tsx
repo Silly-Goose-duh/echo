@@ -5,6 +5,8 @@ import { Orb } from "@/components/Orb";
 import { Waveform } from "@/components/Waveform";
 import { Transcript } from "@/components/Transcript";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { SpeakingWaves } from "@/components/SpeakingWaves";
+import { Captions } from "@/components/Captions";
 import { useEchoSocket } from "@/hooks/useEchoSocket";
 import { floatTo16Base64, playPcm16Base64, rmsLevel } from "@/lib/audio";
 import { createVad } from "@/lib/vad";
@@ -20,7 +22,6 @@ import {
   ServerMessage,
   TranscriptEntry,
 } from "@/lib/protocol";
-import type { ClientMessage } from "@/lib/protocol";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -37,13 +38,17 @@ export function EchoApp() {
   const [levels, setLevels] = useState<number[]>([]);
   const [statusLabel, setStatusLabel] = useState("connecting…");
   const [error, setError] = useState<string | null>(null);
+  /** Text of the assistant turn currently being spoken (live captions). */
+  const [caption, setCaption] = useState("");
 
   const [voice, setVoice] = useState<string>(DEFAULT_VOICE);
   const [openMic, setOpenMic] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [micPhase, setMicPhase] = useState<MicPhase>("off");
+  /** Tap-to-talk: true between the first tap and the second. */
+  const [listening, setListening] = useState(false);
 
-  const holdingRef = useRef(false);
+  const listeningRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
@@ -63,11 +68,13 @@ export function EchoApp() {
   const speakingRef = useRef(false); // gate: assistant is talking / thinking
   const vadRef = useRef(createVad());
   const prerollRef = useRef<Float32Array[]>([]);
-  const sendRef = useRef<((msg: ClientMessage) => boolean) | null>(null);
 
   const pushEntry = useCallback((entry: Omit<TranscriptEntry, "id" | "ts">) => {
     setEntries((prev) => [...prev, { ...entry, id: uid(), ts: Date.now() }]);
   }, []);
+
+  /** Start of a new user turn — wipe the assistant captions. */
+  const clearCaption = useCallback(() => setCaption(""), []);
 
   // Restore persisted preferences
   useEffect(() => {
@@ -100,7 +107,7 @@ export function EchoApp() {
         setStatusLabel("ready");
         setError(null);
         speakingRef.current = false;
-        if (!holdingRef.current) setOrbState("idle");
+        if (!listeningRef.current) setOrbState("idle");
         return;
       }
 
@@ -112,6 +119,7 @@ export function EchoApp() {
           .filter(Boolean)
           .join(" · ");
         pushEntry({ role: "user", text: msg.text || "(empty)", meta });
+        setCaption("");
         setOrbState("processing");
         setStatusLabel("processing…");
         return;
@@ -120,6 +128,10 @@ export function EchoApp() {
       if (msg.type === "assistant_text") {
         if (msg.final !== false) {
           pushEntry({ role: "assistant", text: msg.text });
+          // Text-only turns (no TTS) still deserve captions.
+          setCaption((prev) => (prev.trim() ? prev : msg.text));
+        } else {
+          setCaption(msg.text);
         }
         return;
       }
@@ -129,9 +141,15 @@ export function EchoApp() {
         setStatusLabel("speaking…");
         const sr = msg.sr || 24000;
         const pcm = msg.pcm16;
+        const chunkText = msg.text?.trim() ?? "";
         const gen = playGenRef.current;
         playQueueRef.current = playQueueRef.current.then(async () => {
           if (gen !== playGenRef.current) return; // interrupted — drop chunk
+          // Caption the sentence at the moment it starts playing, so the
+          // text on screen matches what is actually being heard.
+          if (chunkText) {
+            setCaption((prev) => (prev ? `${prev} ${chunkText}` : chunkText));
+          }
           try {
             const ctx = await getAudioCtx();
             // Prefer native rate for TTS playback (often 24 kHz)
@@ -166,7 +184,8 @@ export function EchoApp() {
         activeSrcRef.current = null;
         playQueueRef.current = Promise.resolve();
         speakingRef.current = false;
-        if (!holdingRef.current && !vadRef.current.speaking) {
+        setCaption("");
+        if (!listeningRef.current && !vadRef.current.speaking) {
           setOrbState("idle");
           setStatusLabel(openMicRef.current ? "listening for you…" : "ready");
         }
@@ -192,7 +211,7 @@ export function EchoApp() {
           });
         }
         playQueueRef.current = playQueueRef.current.then(() => {
-          if (!holdingRef.current) {
+          if (!listeningRef.current) {
             setOrbState("idle");
             setStatusLabel(openMicRef.current ? "listening for you…" : "ready");
           }
@@ -215,7 +234,7 @@ export function EchoApp() {
         vadRef.current.reset();
         prerollRef.current = [];
         if (openMicRef.current && capturingRef.current) setMicPhase("armed");
-        if (!holdingRef.current) setOrbState("idle");
+        if (!listeningRef.current) setOrbState("idle");
       }
     },
     [getAudioCtx, pushEntry],
@@ -224,8 +243,9 @@ export function EchoApp() {
   const { status, send, reset, isOpen } = useEchoSocket(DEFAULT_WS_URL, {
     onMessage,
     onOpen: () => {
-      // (Re)apply session config on every (re)connect.
-      sendRef.current?.({
+      // (Re)apply session config on every (re)connect. `send` is assigned
+      // before this can fire, so the TDZ reference is safe.
+      send({
         type: "config",
         voice: voiceRef.current,
         open_mic: openMicRef.current,
@@ -239,8 +259,6 @@ export function EchoApp() {
       else if (s === "error") setStatusLabel("connection error");
     },
   });
-
-  sendRef.current = send;
 
   const cleanupMic = useCallback(() => {
     try {
@@ -305,7 +323,7 @@ export function EchoApp() {
           setLevels([...next]);
 
           if (mode === "ptt") {
-            if (!holdingRef.current) return;
+            if (!listeningRef.current) return;
             send({
               type: "audio",
               sr: ctx.sampleRate,
@@ -331,6 +349,7 @@ export function EchoApp() {
             setMicPhase("speech");
             setOrbState("listening");
             setStatusLabel("listening…");
+            setCaption("");
             prerollRef.current.forEach(emit); // don't clip the first syllable
             prerollRef.current = [];
           } else if (!wasSpeaking) {
@@ -375,37 +394,61 @@ export function EchoApp() {
     [cleanupMic, getAudioCtx, send],
   );
 
-  // ---- push-to-talk ----
+  // ---- tap-to-talk ----
   const startListening = useCallback(async () => {
     if (openMicRef.current) return; // orb is passive in open-mic mode
-    if (holdingRef.current) return;
+    if (listeningRef.current) return;
     if (!isOpen) {
       setError("Not connected to server");
       return;
     }
-    holdingRef.current = true;
+    // Tapping while Echo is talking is a barge-in: cut playback locally too.
+    playGenRef.current += 1;
+    try {
+      activeSrcRef.current?.stop();
+    } catch {
+      /* already stopped */
+    }
+    activeSrcRef.current = null;
+    playQueueRef.current = Promise.resolve();
+
+    listeningRef.current = true;
+    setListening(true);
     setError(null);
+    clearCaption();
     setOrbState("listening");
     setStatusLabel("listening…");
     setMicPhase("speech");
     const ok = await startCapture("ptt");
     if (!ok) {
-      holdingRef.current = false;
+      listeningRef.current = false;
+      setListening(false);
       setOrbState("idle");
       setStatusLabel("ready");
     }
-  }, [isOpen, startCapture]);
+  }, [clearCaption, isOpen, startCapture]);
 
   const stopListening = useCallback(() => {
     if (openMicRef.current) return;
-    if (!holdingRef.current) return;
-    holdingRef.current = false;
+    if (!listeningRef.current) return;
+    listeningRef.current = false;
+    setListening(false);
     cleanupMic();
     setMicPhase("off");
     setOrbState("processing");
     setStatusLabel("processing…");
     send({ type: "end_utt" });
   }, [cleanupMic, send]);
+
+  /** Single tap target: first tap opens the mic, second closes it. */
+  const handleOrbToggle = useCallback(() => {
+    if (openMicRef.current) return;
+    if (listeningRef.current) {
+      stopListening();
+    } else {
+      void startListening();
+    }
+  }, [startListening, stopListening]);
 
   // ---- open mic lifecycle ----
   useEffect(() => {
@@ -417,8 +460,9 @@ export function EchoApp() {
     }
 
     if (openMic) {
-      if (holdingRef.current) {
-        holdingRef.current = false;
+      if (listeningRef.current) {
+        listeningRef.current = false;
+        setListening(false);
         cleanupMic();
       }
       let cancelled = false;
@@ -470,10 +514,19 @@ export function EchoApp() {
   );
 
   const handleReset = useCallback(() => {
-    holdingRef.current = false;
+    listeningRef.current = false;
+    setListening(false);
     speakingRef.current = false;
     vadRef.current.reset();
     prerollRef.current = [];
+    playGenRef.current += 1;
+    try {
+      activeSrcRef.current?.stop();
+    } catch {
+      /* already stopped */
+    }
+    activeSrcRef.current = null;
+    playQueueRef.current = Promise.resolve();
     if (!openMicRef.current) {
       cleanupMic();
       setMicPhase("off");
@@ -485,6 +538,7 @@ export function EchoApp() {
     send({ type: "config", voice: voiceRef.current, open_mic: openMicRef.current });
     setEntries([]);
     setError(null);
+    setCaption("");
     setOrbState("idle");
     setStatusLabel(openMicRef.current ? "listening for you…" : "ready");
   }, [cleanupMic, reset, send]);
@@ -500,7 +554,7 @@ export function EchoApp() {
     micPhase === "off"
       ? openMic
         ? "starting…"
-        : "idle (push to talk)"
+        : "idle (tap to talk)"
       : micPhase === "armed"
         ? "open · waiting for speech"
         : micPhase === "speech"
@@ -510,65 +564,92 @@ export function EchoApp() {
             : "open · paused";
 
   const micActive = micPhase === "armed" || micPhase === "speech";
+  const connected = status === "ready" || status === "connected";
+
+  const captionHint =
+    orbState === "listening"
+      ? "I'm listening. Take your time."
+      : openMic
+        ? "Whenever you're ready — just start talking."
+        : "Whenever you're ready — tap the orb and talk.";
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center px-6 py-12">
-      <header className="mb-10 text-center">
-        <h1 className="text-sm font-medium tracking-[0.28em] text-zinc-400">
-          ECHO
-        </h1>
-        <p className="mt-2 text-xs text-zinc-600">
-          {statusLabel}
-          {status === "ready" ? "" : status === "connecting" ? "" : ""}
-        </p>
+    <div className="relative flex min-h-dvh flex-col overflow-x-hidden">
+      {/* Hero visual: flowing blue waves while Echo speaks */}
+      <SpeakingWaves active={orbState === "speaking"} />
+
+      {/* ---- top bar ---- */}
+      <header className="echo-pad-top relative z-30 flex items-start justify-between gap-3 px-4 sm:px-8">
+        <div className="min-w-0">
+          <h1 className="text-[11px] font-medium tracking-[0.34em] text-zinc-300 sm:text-xs">
+            ECHO
+          </h1>
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-600">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
+                connected ? "bg-[#638cff]" : "bg-zinc-600"
+              }`}
+              aria-hidden
+            />
+            <span className="truncate">{statusLabel}</span>
+          </p>
+        </div>
+
+        <SettingsPanel
+          open={settingsOpen}
+          onToggleOpen={() => setSettingsOpen((o) => !o)}
+          voice={voice}
+          onVoiceChange={handleVoiceChange}
+          openMic={openMic}
+          onOpenMicChange={setOpenMic}
+          micLabel={micLabel}
+          micActive={micActive}
+        />
       </header>
 
-      <main className="flex w-full max-w-lg flex-col items-center gap-10">
+      {/* ---- centre stage ---- */}
+      <main
+        className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8
+          px-5 py-10 sm:gap-10 sm:px-8"
+      >
         <Orb
           state={orbState}
-          onPressStart={startListening}
-          onPressEnd={stopListening}
-          disabled={
-            openMic || (orbState === "processing" && !holdingRef.current)
-          }
+          onToggle={handleOrbToggle}
+          listening={listening}
+          passive={openMic}
+          disabled={openMic || (orbState === "processing" && !listening)}
           idleLabel={openMic ? "open mic — just speak" : undefined}
         />
 
         <Waveform state={orbState} levels={levels.length ? levels : undefined} />
 
         {error && (
-          <p className="max-w-sm text-center text-xs text-red-400/90">{error}</p>
+          <p className="max-w-sm text-balance text-center text-xs text-red-400/90">
+            {error}
+          </p>
         )}
-
-        <Transcript entries={entries} />
-
-        <div className="flex flex-col items-center gap-4">
-          <button
-            type="button"
-            onClick={handleReset}
-            className="rounded-full border border-white/[0.08] bg-transparent px-5 py-2
-              text-xs tracking-wide text-zinc-400 transition hover:border-white/20
-              hover:text-zinc-200"
-          >
-            Reset
-          </button>
-
-          <SettingsPanel
-            open={settingsOpen}
-            onToggleOpen={() => setSettingsOpen((o) => !o)}
-            voice={voice}
-            onVoiceChange={handleVoiceChange}
-            openMic={openMic}
-            onOpenMicChange={setOpenMic}
-            micLabel={micLabel}
-            micActive={micActive}
-          />
-        </div>
       </main>
 
-      <footer className="mt-16 text-[11px] text-zinc-700">
-        {openMic ? "open mic · local voice agent" : "tap & hold · local voice agent"}
-      </footer>
+      {/* ---- live captions ---- */}
+      <Captions state={orbState} text={caption} idleHint={captionHint} />
+
+      {/* ---- bottom controls ---- */}
+      <div
+        className="echo-pad-bottom fixed inset-x-0 bottom-0 z-30 flex items-end justify-between
+          gap-3 px-4 sm:px-8"
+      >
+        <Transcript entries={entries} />
+
+        <button
+          type="button"
+          onClick={handleReset}
+          className="shrink-0 rounded-full border border-white/[0.08] bg-black/40 px-4 py-2.5
+            text-xs tracking-wide text-zinc-400 backdrop-blur-md transition
+            hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-5"
+        >
+          Reset
+        </button>
+      </div>
     </div>
   );
 }
