@@ -16,8 +16,8 @@ export function Onboarding({ onAccept }: Props) {
         className="w-full max-w-md"
       >
         <div className="glass rounded-3xl p-6 sm:p-8">
-          <p className="text-[11px] font-medium tracking-[0.34em] text-zinc-400">
-            ECHO
+          <p className="text-[11px] font-medium tracking-[0.28em] text-zinc-400">
+            sheleftme
           </p>
           <h1 className="mt-3 text-2xl font-medium tracking-tight text-zinc-100 sm:text-3xl">
             Someone to talk to

@@ -779,11 +779,11 @@ export function EchoApp() {
 
       <header className="echo-pad-top relative z-30 flex items-start justify-between gap-3 px-4 sm:px-8">
         <div className="glass-soft echo-float-in min-w-0 rounded-2xl px-3.5 py-2.5">
-          <h1 className="text-[11px] font-medium tracking-[0.34em] text-zinc-200 sm:text-xs">
-            ECHO
+          <h1 className="text-[11px] font-medium tracking-[0.28em] text-zinc-200 sm:text-xs">
+            sheleftme
           </h1>
-          <p className="mt-0.5 text-[10px] tracking-[0.18em] text-zinc-500 sm:text-[11px]">
-            therapist companion
+          <p className="mt-0.5 text-[10px] tracking-[0.16em] text-zinc-500 sm:text-[11px]">
+            someone to talk to
           </p>
           <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
             <span

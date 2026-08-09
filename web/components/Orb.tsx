@@ -20,7 +20,7 @@ const labels: Record<OrbState, string> = {
   idle: "tap to start",
   listening: "listening…",
   processing: "thinking…",
-  speaking: "echo is speaking",
+  speaking: "speaking…",
 };
 
 export function Orb({

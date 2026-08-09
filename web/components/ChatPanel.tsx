@@ -106,7 +106,7 @@ export function ChatPanel({
             rows={1}
             disabled={disabled || busy}
             placeholder={
-              disabled ? "Connecting…" : busy ? "Echo is writing…" : "Message Echo…"
+              disabled ? "Connecting…" : busy ? "Writing…" : "Say something…"
             }
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {

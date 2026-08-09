@@ -13,19 +13,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Echo — Therapist Companion",
+  title: "sheleftme",
   description:
-    "A warm, simple therapist-style companion. Voice or chat. Not a crisis service.",
+    "A warm, simple place to talk. Voice or chat. Not a crisis service.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  // Let the app paint under the notch / home indicator; components add
-  // their own env(safe-area-inset-*) padding.
   viewportFit: "cover",
-  themeColor: "#0A0A0A",
+  themeColor: "#07080c",
 };
 
 export default function RootLayout({
@@ -38,7 +36,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-[#0A0A0A] text-zinc-100">{children}</body>
+      <body className="min-h-full bg-[#07080c] text-zinc-100">{children}</body>
     </html>
   );
 }
