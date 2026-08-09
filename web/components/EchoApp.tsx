@@ -12,7 +12,8 @@ import { Onboarding } from "@/components/Onboarding";
 import { useEchoSocket } from "@/hooks/useEchoSocket";
 import {
   floatTo16Base64,
-  playPcm16Base64Seamless,
+  schedulePcm16Base64,
+  drainPlayback,
   rmsLevel,
   base64Pcm16ToFloat32,
   bumpPlaybackGeneration,
@@ -60,7 +61,9 @@ export function EchoApp() {
   const [chatBusy, setChatBusy] = useState(false);
 
   const [voice, setVoice] = useState<string>(DEFAULT_VOICE);
-  const [openMic, setOpenMic] = useState(true);
+  // VAD starts only after the user taps once to begin the conversation.
+  const [openMic, setOpenMic] = useState(false);
+  const [sessionStarted, setSessionStarted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [micPhase, setMicPhase] = useState<MicPhase>("off");
   /** Tap-to-talk: true between the first tap and the second. */
@@ -105,9 +108,9 @@ export function EchoApp() {
         voiceRef.current = v;
       }
       const om = localStorage.getItem(OPEN_MIC_STORAGE_KEY);
-      // VAD / open-mic is the default; only "0" turns it off.
+      // Preference only applies after session start; default VAD on when they tap.
       if (om === "0") setOpenMic(false);
-      else setOpenMic(true);
+      else if (om === "1") setOpenMic(true);
       if (localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "1") {
         setAccepted(true);
       }
@@ -215,26 +218,19 @@ export function EchoApp() {
         } catch {
           /* ignore */
         }
-        playQueueRef.current = playQueueRef.current.then(async () => {
-          if (gen !== playGenRef.current) return;
-          // Caption = sentence currently being spoken (matches this audio).
-          if (chunkText) {
-            setCaption(chunkText);
+        // Schedule immediately (do NOT wait for prior clip to finish playing).
+        void schedulePcm16Base64(pcm, sr, (src) => {
+          if (gen !== playGenRef.current) {
+            try {
+              src.stop();
+            } catch {
+              /* ok */
+            }
+            return;
           }
-          try {
-            await playPcm16Base64Seamless(
-              pcm,
-              sr,
-              (src) => {
-                activeSrcRef.current = src;
-              },
-              gen,
-            );
-            activeSrcRef.current = null;
-          } catch (e) {
-            console.error("playback failed", e);
-          }
-        });
+          activeSrcRef.current = src;
+          if (chunkText) setCaption(chunkText);
+        }).catch((e) => console.error("schedule failed", e));
         return;
       }
 
@@ -290,15 +286,21 @@ export function EchoApp() {
         }
         setChatStreaming("");
         setChatBusy(false);
-        playQueueRef.current = playQueueRef.current.then(() => {
+        // Wait until scheduled audio has actually finished playing.
+        void drainPlayback().then(() => {
+          if (playGenRef.current) {
+            /* gen may have advanced on barge-in — still safe to idle */
+          }
           if (!listeningRef.current) {
             setOrbState("idle");
             setStatusLabel(
               modeRef.current === "chat"
                 ? "ready"
                 : openMicRef.current
-                  ? "listening for you…"
-                  : "ready",
+                  ? "listening — just speak"
+                  : sessionStarted
+                    ? "ready"
+                    : "tap to start",
             );
           }
           speakingRef.current = false;
@@ -427,11 +429,9 @@ export function EchoApp() {
           // ---- open mic / client-side VAD ----
           if (!openMicRef.current) return;
 
-          // ChatGPT-like barge-in: only interrupt assistant on clear speech
-          // (higher threshold so TTS bleed / room noise won't cut Echo off).
+          // Strong barge-in only — speaker bleed must not cut Echo mid-sentence.
           if (speakingRef.current) {
-            if (level < 0.32) return;
-            // User started talking over Echo — cut playback + let server barge-in.
+            if (level < 0.48) return;
             speakingRef.current = false;
             playGenRef.current += 1;
             bumpPlaybackGeneration();
@@ -443,7 +443,6 @@ export function EchoApp() {
             activeSrcRef.current = null;
             playQueueRef.current = Promise.resolve();
             setCaption("");
-            // Fall through so VAD can open a new utterance.
           }
 
           const emit = (pcm: Float32Array) =>
@@ -552,26 +551,58 @@ export function EchoApp() {
     send({ type: "end_utt" });
   }, [cleanupMic, send]);
 
-  /** Single tap target: first tap opens the mic, second closes it. */
+  /** Single tap: first tap starts the session (enables VAD); later taps are PTT only if VAD off. */
   const handleOrbToggle = useCallback(() => {
-    if (openMicRef.current) return;
+    if (!isOpen) {
+      setError("Not connected to server");
+      return;
+    }
+
+    // First tap begins the conversation and turns on VAD (unless user opted out).
+    if (!sessionStarted) {
+      setSessionStarted(true);
+      setError(null);
+      // Unlock audio on user gesture
+      void getAudioCtx();
+      const preferVad =
+        (() => {
+          try {
+            return localStorage.getItem(OPEN_MIC_STORAGE_KEY) !== "0";
+          } catch {
+            return true;
+          }
+        })();
+      if (preferVad) {
+        setOpenMic(true);
+        setStatusLabel("listening — just speak");
+        setOrbState("idle");
+      } else {
+        void startListening();
+      }
+      return;
+    }
+
+    if (openMicRef.current) {
+      // VAD active — orb is passive; optional: tapping barges in silence
+      return;
+    }
     if (listeningRef.current) {
       stopListening();
     } else {
       void startListening();
     }
-  }, [startListening, stopListening]);
+  }, [isOpen, sessionStarted, startListening, stopListening, getAudioCtx]);
 
-  // ---- open mic lifecycle (voice mode only) ----
+  // ---- open mic lifecycle (after session start, voice mode only) ----
   useEffect(() => {
-    openMicRef.current = openMic && mode === "voice";
+    openMicRef.current = openMic && mode === "voice" && sessionStarted;
     try {
       localStorage.setItem(OPEN_MIC_STORAGE_KEY, openMic ? "1" : "0");
     } catch {
       /* ignore */
     }
 
-    if (mode !== "voice") {
+    if (mode !== "voice" || !sessionStarted) {
       if (capturingRef.current) cleanupMic();
       setMicPhase("off");
       listeningRef.current = false;
@@ -592,9 +623,10 @@ export function EchoApp() {
         if (ok) {
           speakingRef.current = false;
           setMicPhase("armed");
-          setStatusLabel("listening for you…");
+          setStatusLabel("listening — just speak");
         } else {
           setOpenMic(false);
+          setError("Microphone permission needed");
         }
       })();
       return () => {
@@ -607,13 +639,16 @@ export function EchoApp() {
     vadRef.current.reset();
     setOrbState((s) => (s === "listening" ? "idle" : s));
     return;
-  }, [openMic, mode, cleanupMic, startCapture]);
+  }, [openMic, mode, sessionStarted, cleanupMic, startCapture]);
 
   // Tell the server whenever open-mic toggles (informational)
   useEffect(() => {
     if (!isOpen) return;
-    send({ type: "config", open_mic: openMic && mode === "voice" });
-  }, [openMic, mode, isOpen, send]);
+    send({
+      type: "config",
+      open_mic: openMic && mode === "voice" && sessionStarted,
+    });
+  }, [openMic, mode, sessionStarted, isOpen, send]);
 
   const handleVoiceChange = useCallback(
     (v: string) => {
@@ -701,30 +736,34 @@ export function EchoApp() {
   }, [cleanupMic]);
 
   const micLabel =
-    micPhase === "off"
-      ? openMic
-        ? "starting…"
-        : "idle (tap to talk)"
-      : micPhase === "armed"
-        ? "open · waiting for speech"
-        : micPhase === "speech"
-          ? "capturing"
-          : micPhase === "error"
-            ? "unavailable"
-            : "open · paused";
+    !sessionStarted
+      ? "tap orb to begin"
+      : micPhase === "off"
+        ? openMic
+          ? "starting…"
+          : "idle (tap to talk)"
+        : micPhase === "armed"
+          ? "open · waiting for speech"
+          : micPhase === "speech"
+            ? "capturing"
+            : micPhase === "error"
+              ? "unavailable"
+              : "open · paused";
 
   const micActive = micPhase === "armed" || micPhase === "speech";
   const connected = status === "ready" || status === "connected";
 
   const captionHint =
-    orbState === "listening"
-      ? "I'm listening. Take your time."
-      : openMic
-        ? "Whenever you're ready — just start talking."
-        : "Whenever you're ready — tap the orb and talk.";
+    !sessionStarted
+      ? "Tap the orb once to begin. Then just talk."
+      : orbState === "listening"
+        ? "I'm listening. Take your time."
+        : openMic
+          ? "Whenever you're ready — just start talking."
+          : "Tap the orb when you want to talk.";
 
   if (!ready) {
-    return <div className="min-h-dvh bg-[#0A0A0A]" />;
+    return <div className="min-h-dvh bg-[#07080c]" />;
   }
 
   if (!accepted) {
@@ -739,14 +778,14 @@ export function EchoApp() {
       />
 
       <header className="echo-pad-top relative z-30 flex items-start justify-between gap-3 px-4 sm:px-8">
-        <div className="min-w-0">
-          <h1 className="text-[11px] font-medium tracking-[0.34em] text-zinc-300 sm:text-xs">
+        <div className="glass-soft echo-float-in min-w-0 rounded-2xl px-3.5 py-2.5">
+          <h1 className="text-[11px] font-medium tracking-[0.34em] text-zinc-200 sm:text-xs">
             ECHO
           </h1>
-          <p className="mt-0.5 text-[10px] tracking-[0.18em] text-zinc-600 sm:text-[11px]">
+          <p className="mt-0.5 text-[10px] tracking-[0.18em] text-zinc-500 sm:text-[11px]">
             therapist companion
           </p>
-          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-600">
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
                 connected
@@ -768,19 +807,22 @@ export function EchoApp() {
               onToggleOpen={() => setSettingsOpen((o) => !o)}
               voice={voice}
               onVoiceChange={handleVoiceChange}
-              openMic={openMic}
-              onOpenMicChange={setOpenMic}
+              openMic={openMic && sessionStarted}
+              onOpenMicChange={(on) => {
+                if (!sessionStarted) return;
+                setOpenMic(on);
+              }}
               micLabel={micLabel}
               micActive={micActive}
+              sessionStarted={sessionStarted}
             />
           )}
           {mode === "chat" && (
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-full border border-white/[0.08] bg-black/40 px-3.5 py-2
-                text-[11px] tracking-wide text-zinc-400 backdrop-blur-md transition
-                hover:border-white/20 hover:text-zinc-200 active:scale-95"
+              className="glass-soft rounded-full px-3.5 py-2 text-[11px] tracking-wide
+                text-zinc-400 transition hover:text-zinc-200 active:scale-95"
             >
               New chat
             </button>
@@ -808,14 +850,16 @@ export function EchoApp() {
               state={orbState}
               onToggle={handleOrbToggle}
               listening={listening}
-              passive={openMic}
-              disabled={openMic || !connected}
+              passive={sessionStarted && openMic}
+              disabled={!connected || (sessionStarted && openMic)}
               idleLabel={
-                openMic
-                  ? "listening — just speak"
-                  : !connected
-                    ? "connecting…"
-                    : undefined
+                !sessionStarted
+                  ? "tap once to start"
+                  : openMic
+                    ? "listening — just speak"
+                    : !connected
+                      ? "connecting…"
+                      : "tap to talk"
               }
             />
 
@@ -825,7 +869,7 @@ export function EchoApp() {
             />
 
             {error && (
-              <p className="max-w-sm text-balance text-center text-xs text-red-400/90">
+              <p className="glass-soft max-w-sm rounded-full px-4 py-2 text-balance text-center text-xs text-red-300/90">
                 {error}
               </p>
             )}
@@ -838,7 +882,6 @@ export function EchoApp() {
               gap-3 px-4 sm:px-8"
           >
             <Transcript entries={entries} />
-            {/* spacer so transcript doesn't sit under the FAB */}
             <div className="h-14 w-14 shrink-0" aria-hidden />
           </div>
         </>
@@ -849,13 +892,11 @@ export function EchoApp() {
         type="button"
         onClick={() => switchMode(mode === "chat" ? "voice" : "chat")}
         aria-label={mode === "chat" ? "Back to voice" : "Open chat"}
-        className="echo-pad-bottom fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center
-          justify-center rounded-full border border-white/10 bg-[#3d6ef5] text-white
-          shadow-[0_8px_32px_rgba(61,110,245,0.45)] transition
-          hover:bg-[#4f7dff] active:scale-95 sm:bottom-6 sm:right-6"
+        className="glass-fab echo-pad-bottom fixed bottom-4 right-4 z-40 flex h-14 w-14
+          items-center justify-center rounded-full text-white transition
+          hover:brightness-110 active:scale-95 sm:bottom-6 sm:right-6"
       >
         {mode === "chat" ? (
-          // mic icon → back to voice / VAD
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path
               d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
@@ -871,7 +912,6 @@ export function EchoApp() {
             />
           </svg>
         ) : (
-          // chat bubble icon
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path
               d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4 3.5V6.5Z"

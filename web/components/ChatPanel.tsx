@@ -48,8 +48,7 @@ export function ChatPanel({
               Write like you would to a steady friend.
             </p>
             <p className="mt-2 text-xs text-zinc-600">
-              Meaning, choice, loneliness, anxiety — whatever is sitting with
-              you.
+              Whatever is on your mind — keep it simple.
             </p>
           </div>
         )}
@@ -62,10 +61,10 @@ export function ChatPanel({
             <div
               className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed sm:max-w-[80%] ${
                 e.role === "user"
-                  ? "rounded-br-md bg-[#3d6ef5] text-white"
+                  ? "rounded-br-md bg-[#3d6ef5]/90 text-white shadow-[0_8px_24px_rgba(61,110,245,0.25)]"
                   : e.meta === "crisis"
-                    ? "rounded-bl-md border border-amber-500/30 bg-amber-500/10 text-amber-50"
-                    : "rounded-bl-md border border-white/[0.06] bg-white/[0.05] text-zinc-100"
+                    ? "glass rounded-bl-md border border-amber-500/25 text-amber-50"
+                    : "glass-soft rounded-bl-md text-zinc-100"
               }`}
             >
               <p className="whitespace-pre-wrap">{e.text}</p>
@@ -75,7 +74,7 @@ export function ChatPanel({
 
         {streaming ? (
           <div className="flex justify-start">
-            <div className="max-w-[88%] rounded-2xl rounded-bl-md border border-white/[0.06] bg-white/[0.05] px-4 py-2.5 text-[15px] leading-relaxed text-zinc-100 sm:max-w-[80%]">
+            <div className="glass-soft max-w-[88%] rounded-2xl rounded-bl-md px-4 py-2.5 text-[15px] leading-relaxed text-zinc-100 sm:max-w-[80%]">
               <p className="whitespace-pre-wrap">{streaming}</p>
               <span className="mt-1 inline-block h-3 w-1.5 animate-pulse bg-[#638cff]/80" />
             </div>
@@ -99,8 +98,8 @@ export function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      <div className="shrink-0 border-t border-white/[0.06] pt-3">
-        <div className="flex items-end gap-2 rounded-2xl border border-white/[0.08] bg-black/40 p-2 backdrop-blur-md">
+      <div className="shrink-0 pt-3">
+        <div className="glass flex items-end gap-2 rounded-2xl p-2">
           <textarea
             ref={inputRef}
             value={draft}
@@ -124,8 +123,8 @@ export function ChatPanel({
             type="button"
             disabled={disabled || busy || !draft.trim()}
             onClick={submit}
-            className="mb-0.5 shrink-0 rounded-xl bg-[#3d6ef5] px-4 py-2.5 text-sm
-              font-medium text-white transition hover:bg-[#4f7dff]
+            className="glass-fab mb-0.5 shrink-0 rounded-xl px-4 py-2.5 text-sm
+              font-medium text-white transition hover:brightness-110
               disabled:cursor-not-allowed disabled:opacity-40 active:scale-95"
           >
             Send

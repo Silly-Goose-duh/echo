@@ -13,6 +13,7 @@ type Props = {
   micLabel: string;
   micActive: boolean;
   disabled?: boolean;
+  sessionStarted?: boolean;
 };
 
 export function SettingsPanel({
@@ -25,6 +26,7 @@ export function SettingsPanel({
   micLabel,
   micActive,
   disabled,
+  sessionStarted,
 }: Props) {
   return (
     <div className="relative shrink-0">
@@ -32,45 +34,36 @@ export function SettingsPanel({
         type="button"
         onClick={onToggleOpen}
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/40
-          px-3.5 py-2 text-[11px] tracking-wide text-zinc-400 backdrop-blur-md transition
-          hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-4"
+        aria-label="Settings"
+        className="glass-soft flex h-10 w-10 items-center justify-center rounded-full
+          text-zinc-300 transition hover:text-white active:scale-95"
       >
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
-            micActive ? "bg-[#638cff]" : "bg-white/20"
-          }`}
-          aria-hidden
-        />
-        <span className="max-w-[9rem] truncate">
-          {voiceLabel(voice)}
-          {openMic ? " · open mic" : ""}
-        </span>
-        <motion.span
-          aria-hidden
-          animate={{ rotate: open ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-          className="text-zinc-600"
-        >
-          ▾
-        </motion.span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
+          <path
+            d="M12 3.5v2.2M12 18.3V20.5M4.9 6.5l1.6 1.6M17.5 15.9l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.9 17.5l1.6-1.6M17.5 8.1l1.6-1.6"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        </svg>
+        {micActive && (
+          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#7ee0b8] shadow-[0_0_8px_rgba(126,224,184,0.8)]" />
+        )}
       </button>
 
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
             key="settings"
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="absolute right-0 top-full z-40 mt-2 w-[min(20rem,calc(100vw-2rem))]"
           >
-            <div
-              className="rounded-2xl border border-white/[0.07] bg-black/75 p-4
-                backdrop-blur-xl"
-            >
-              <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+            <div className="glass rounded-2xl p-4">
+              <p className="mb-2 text-[10px] uppercase tracking-[0.22em] text-zinc-500">
                 Voice
               </p>
               <div className="grid grid-cols-2 gap-1.5">
@@ -82,12 +75,11 @@ export function SettingsPanel({
                       type="button"
                       disabled={disabled}
                       onClick={() => onVoiceChange(v.id)}
-                      className={`rounded-lg px-2.5 py-2.5 text-left transition disabled:opacity-40
-                        ${
-                          selected
-                            ? "bg-[#3d6ef5]/15 text-zinc-100 ring-1 ring-[#638cff]/50"
-                            : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-                        }`}
+                      className={`rounded-xl px-2.5 py-2.5 text-left transition disabled:opacity-40 ${
+                        selected
+                          ? "bg-[rgba(61,110,245,0.18)] text-zinc-100 ring-1 ring-[rgba(99,140,255,0.45)]"
+                          : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+                      }`}
                     >
                       <span className="block text-xs">{v.label}</span>
                       <span className="block text-[10px] text-zinc-600">
@@ -103,20 +95,21 @@ export function SettingsPanel({
                   type="button"
                   role="switch"
                   aria-checked={openMic}
-                  disabled={disabled}
+                  disabled={disabled || !sessionStarted}
                   onClick={() => onOpenMicChange(!openMic)}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg
-                    px-1 py-2 text-left transition disabled:opacity-40
-                    hover:text-zinc-200"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl
+                    px-1 py-2 text-left transition disabled:opacity-40 hover:text-zinc-200"
                 >
                   <span>
                     <span className="block text-xs text-zinc-300">
                       Open mic (VAD)
                     </span>
                     <span className="block text-[10px] text-zinc-600">
-                      {openMic
-                        ? "auto-detects end of speech"
-                        : "tap the orb to talk"}
+                      {!sessionStarted
+                        ? "tap the orb once to begin"
+                        : openMic
+                          ? "auto-detects when you finish"
+                          : "tap the orb to talk"}
                     </span>
                   </span>
                   <span
@@ -128,11 +121,13 @@ export function SettingsPanel({
                     <motion.span
                       className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow"
                       animate={{ left: openMic ? 18 : 2 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 32 }}
+                      transition={{ type: "spring", stiffness: 420, damping: 30 }}
                     />
                   </span>
                 </button>
-                <p className="mt-2 text-[10px] text-zinc-600">mic: {micLabel}</p>
+                <p className="mt-2 text-[10px] text-zinc-600">
+                  {voiceLabel(voice)} · mic: {micLabel}
+                </p>
               </div>
             </div>
           </motion.div>

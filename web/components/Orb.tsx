@@ -17,10 +17,10 @@ type Props = {
 };
 
 const labels: Record<OrbState, string> = {
-  idle: "tap to talk",
-  listening: "tap to stop",
+  idle: "tap to start",
+  listening: "listening…",
   processing: "thinking…",
-  speaking: "speaking",
+  speaking: "echo is speaking",
 };
 
 export function Orb({

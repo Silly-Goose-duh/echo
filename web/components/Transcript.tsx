@@ -18,20 +18,16 @@ export function Transcript({ entries }: Props) {
         {open && (
           <motion.div
             key="drawer"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="absolute bottom-full left-0 mb-2 w-[min(24rem,calc(100vw-2rem))]"
           >
-            <div
-              className="max-h-[45vh] overflow-y-auto rounded-2xl border border-white/[0.07]
-                bg-black/75 px-4 py-3 text-[13px] leading-relaxed backdrop-blur-xl
-                sm:max-h-64"
-            >
+            <div className="glass max-h-[45vh] overflow-y-auto rounded-2xl px-4 py-3 text-[13px] leading-relaxed sm:max-h-64">
               {count === 0 ? (
                 <p className="text-zinc-500">
-                  Nothing yet. Tap the orb whenever you&apos;re ready.
+                  Nothing yet. Tap the orb once to begin.
                 </p>
               ) : (
                 <ul className="space-y-3">
@@ -57,7 +53,7 @@ export function Transcript({ entries }: Props) {
                           {e.meta}
                         </span>
                       )}
-                      <p className="mt-0.5 text-zinc-200">{e.text}</p>
+                      <p className="mt-0.5 text-zinc-200/95">{e.text}</p>
                     </li>
                   ))}
                 </ul>
@@ -71,20 +67,23 @@ export function Transcript({ entries }: Props) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex max-w-full items-center gap-2 rounded-full border border-white/[0.08]
-          bg-black/40 px-4 py-2.5 text-xs tracking-wide text-zinc-400 backdrop-blur-md
-          transition hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-5"
+        className="glass-soft flex max-w-full items-center gap-2 rounded-full px-4 py-2.5
+          text-xs tracking-wide text-zinc-400 transition hover:text-zinc-200 active:scale-95 sm:px-5"
       >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M5 6h14M5 12h10M5 18h12"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+        </svg>
         <span className="truncate">Transcript</span>
-        {count > 0 && <span className="text-zinc-600">{count}</span>}
-        <motion.span
-          aria-hidden
-          animate={{ rotate: open ? 0 : 180 }}
-          transition={{ duration: 0.2 }}
-          className="text-zinc-600"
-        >
-          ▾
-        </motion.span>
+        {count > 0 && (
+          <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] text-zinc-400">
+            {count}
+          </span>
+        )}
       </button>
     </div>
   );
