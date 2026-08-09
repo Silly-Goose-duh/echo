@@ -28,3 +28,7 @@ scripts/run_tunnel.sh
 scripts/run_tunnel.ps1
 **/.cloudflared/
 *.pem
+
+# runtime logs
+echo_*.log
+echo_*.err

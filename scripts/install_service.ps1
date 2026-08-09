@@ -2,7 +2,7 @@
 # Double-click this from File Explorer, or run in PowerShell as Administrator.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$launcher = Join-Path $root 'scripts\echo_up.bat'
+$launcher = Join-Path $root 'scripts\echo_up.ps1'
 
 if (-not (Test-Path $launcher)) { throw "Launcher not found: $launcher" }
 
@@ -12,14 +12,23 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
   exit
 }
 
-schtasks /Delete /TN 'EchoVoiceAgent' /F 2>$null
-$action = New-ScheduledTaskAction -Execute $launcher
+schtasks /Delete /TN 'EchoVoiceAgent' /F 2>$null | Out-Null
+
+$action = New-ScheduledTaskAction `
+  -Execute 'powershell.exe' `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
+
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
   -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+
 Register-ScheduledTask -TaskName 'EchoVoiceAgent' -Action $action -Trigger $trigger `
-  -Settings $settings -Description 'Echo voice agent 24/7 (server + Tailscale Funnel)' -Force
+  -Settings $settings -Description 'Echo voice therapist 24/7 (server + Tailscale Funnel)' -Force
+
 Write-Host "Registered 'EchoVoiceAgent' to start at logon (elevated)."
-Read-Host "Press Enter to exit"
+Write-Host "Starting task now..."
+Start-ScheduledTask -TaskName 'EchoVoiceAgent'
+Write-Host "Done. Press Enter to exit."
+Read-Host

@@ -137,6 +137,7 @@ export function EchoApp() {
       }
 
       if (msg.type === "audio") {
+        speakingRef.current = true;
         setOrbState("speaking");
         setStatusLabel("speaking…");
         const sr = msg.sr || 24000;
@@ -584,10 +585,17 @@ export function EchoApp() {
           <h1 className="text-[11px] font-medium tracking-[0.34em] text-zinc-300 sm:text-xs">
             ECHO
           </h1>
-          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-600">
+          <p className="mt-0.5 text-[10px] tracking-[0.18em] text-zinc-600 sm:text-[11px]">
+            voice therapist
+          </p>
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-600">
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
-                connected ? "bg-[#638cff]" : "bg-zinc-600"
+                connected
+                  ? "bg-emerald-400/90 shadow-[0_0_8px_rgba(52,211,153,0.55)]"
+                  : status === "connecting"
+                    ? "bg-amber-400/80 animate-pulse"
+                    : "bg-zinc-600"
               }`}
               aria-hidden
             />
@@ -617,8 +625,14 @@ export function EchoApp() {
           onToggle={handleOrbToggle}
           listening={listening}
           passive={openMic}
-          disabled={openMic || (orbState === "processing" && !listening)}
-          idleLabel={openMic ? "open mic — just speak" : undefined}
+          disabled={openMic || !connected}
+          idleLabel={
+            openMic
+              ? "open mic — just speak"
+              : !connected
+                ? "connecting…"
+                : undefined
+          }
         />
 
         <Waveform state={orbState} levels={levels.length ? levels : undefined} />

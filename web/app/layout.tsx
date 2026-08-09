@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Echo — Voice Agent",
-  description: "A calm place to talk. Tap the orb and speak.",
+  title: "Echo — Voice Therapist",
+  description:
+    "A calm place to talk. Tap the orb. Name what you feel. Get steady.",
 };
 
 export const viewport: Viewport = {

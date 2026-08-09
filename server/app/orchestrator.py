@@ -151,9 +151,9 @@ class Orchestrator:
         if user_text and assistant:
             self.history.append({"role": "user", "content": user_text})
             self.history.append({"role": "assistant", "content": assistant})
-            # cap history
-            if len(self.history) > 20:
-                self.history = self.history[-20:]
+            # Therapy benefits from longer memory (keep ~20 turns).
+            if len(self.history) > 40:
+                self.history = self.history[-40:]
 
         yield (
             "done",

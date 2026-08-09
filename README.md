@@ -1,14 +1,8 @@
 # Echo — Local Voice Therapist
 
-A real-time voice agent that runs **STT + TTS locally on your RTX 5050** (no per-request
-audio cost) and talks to you like a calm ancient philosopher / gentle psychologist. The
-LLM runs via OpenRouter API. The frontend is a calming Next.js app (orb + blue sound-wave
-background + live captions), deployed on Vercel, and reaches your PC over a Tailscale Funnel
-tunnel.
-
-> **What it is now:** a 24/7 voice companion. Tap the orb, speak, and Echo helps you name
-> what you're feeling, sits with it, and — when you're lying to yourself — pushes back with
-> the honest counter-opinion, then leaves you a little steadier.
+A real-time **voice therapist** that runs STT + TTS locally on your RTX 5050
+(no per-request audio cost). The LLM runs via OpenRouter. Frontend is a calm
+Next.js app on Vercel; the PC is reached over a Tailscale Funnel tunnel.
 
 ---
 
@@ -16,113 +10,99 @@ tunnel.
 
 | What | URL |
 |---|---|
-| **Frontend (use this)** | https://web-seven-theta-31.vercel.app |
-| **Inference server (WebSocket)** | `wss://desktop-re0mlgm.tail7e61ea.ts.net/ws/converse` |
-| **Repo** | `C:\Users\admin\dev\echo` |
+| **Use this** | **https://echotherapist.vercel.app** |
+| Inference WebSocket | `wss://desktop-re0mlgm.tail7e61ea.ts.net/ws/converse` |
+| Local repo | `C:\Users\admin\dev\echo` |
 
-Open the frontend in **Chrome**, wait for the orb to say **"ready"**, then tap the orb and talk.
-Tap again to stop. Captions appear at the bottom as Echo speaks.
+> **Not our domains:** `echo.vercel.app` and `echo-voice.vercel.app` belong to
+> other projects / accounts. Do not use them.
 
----
-
-## Why it was "Not connected" before (and why it stays up now)
-
-The original server + tunnel were background processes inside the agent shell — they died
-every time the session reset, so the page showed "Not connected."
-
-**Fix (already applied and running):**
-- A **detached launcher** (`scripts/echo_up.bat`) spawns the server + funnel as hidden,
-  independent Windows processes that survive the agent shell, logoff, and disconnects.
-- An **admin installer** (`scripts/install_service.ps1`) registers a Windows Task Scheduler
-  task (`EchoVoiceAgent`) that auto-starts everything at logon and restarts on failure.
-
-**To finish 24/7 auto-boot (one-time, needs admin):** double-click
-`scripts/install_service.ps1` (or run it as Administrator). The current session is already
-running detached, so the app is live now without that step.
+Open **https://echotherapist.vercel.app** in Chrome → wait for a green “ready”
+dot → **tap the orb** to talk → tap again to stop. Captions appear at the bottom
+while Echo speaks; a blue sound-wave background animates during speech.
 
 ---
 
-## Quick start (manual)
+## Why it was broken (audit summary)
 
-```bash
-cd C:/Users/admin/dev/echo
-source .venv/Scripts/activate          # git-bash
-
-# 1) start server + tunnel detached (survives this shell)
-scripts\echo_up.bat
-
-# 2) health checks
-curl http://127.0.0.1:8787/health
-curl https://desktop-re0mlgm.tail7e61ea.ts.net/health
-```
-
-To stop manually: `taskkill /F /IM uvicorn.exe` and stop the funnel via
-`"C:\Program Files\Tailscale\tailscale.exe" funnel --stop 8787`.
+| Bug | Impact | Fix |
+|---|---|---|
+| Detached launcher used wrong Python (Hermes/uv, not `.venv`) | Server crashed: `No module named 'numpy'` | `scripts/echo_up.ps1` calls `.venv\Scripts\python.exe` explicitly |
+| Production WS fell back to localhost / bad env | UI showed “Not connected” | Default WS = Funnel URL; `.env.production` bakes funnel; local override only in `.env.development.local` |
+| Vercel SSO protection on all deploys | Site redirected to Vercel login | `vercel project protection disable --sso` |
+| `echo.vercel.app` / `echo-voice.vercel.app` not ours | Wrong app or vanity generator | Renamed project → **echotherapist.vercel.app** |
+| Weak therapist prompt + short memory | Shallow, forgetful replies | Stronger persona + 40-message history + 700 max tokens |
 
 ---
 
 ## Architecture
 
 ```
-Chrome (Vercel frontend)  --WSS-->  Tailscale Funnel  -->  FastAPI :8787  (RTX 5050)
-  orb + blue wave BG + captions          tunnel             STT(Kokoro/Whisper) → LLM → TTS(Kokoro)
+Chrome (Vercel)  --WSS-->  Tailscale Funnel  -->  FastAPI :8787 (RTX 5050)
+  orb + blue waves + captions                    STT → LLM → TTS (streaming)
 ```
 
-- **STT:** Faster-Whisper `large-v3-turbo` (default, CUDA) — Parakeet TDT available via `ECHO_STT=parakeet`.
-- **TTS:** Kokoro-82M (Apache-2.0), 8 curated voices, streaming.
-- **LLM:** OpenRouter `anthropic/claude-haiku-4.5` (fast + thoughtful). Set via `.env`.
-- **VAD:** Silero; client-side silence detection for open-mic mode.
-- **Barge-in:** new speech interrupts the assistant mid-TTS.
-- **Persona:** system prompt in `server/app/config.py` (`system_prompt`) — ancient-philosopher + psychologist, plain words, honest pushback, comfort.
+- **STT:** Faster-Whisper `large-v3-turbo` (CUDA); Parakeet optional via `ECHO_STT=parakeet`
+- **TTS:** Kokoro-82M, 8 voices, streaming
+- **LLM:** OpenRouter `anthropic/claude-haiku-4.5`, therapist system prompt
+- **Barge-in:** new speech / tap interrupts mid-TTS
+- **Persona:** philosopher + psychologist — reflect, validate, clarify, challenge, anchor, close with care
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for hardware/VRAM math and [server/README.md](./server/README.md)
-for the WebSocket protocol.
+---
+
+## Run the server (this machine)
+
+```bash
+cd C:/Users/admin/dev/echo
+
+# Preferred: PowerShell launcher (venv + funnel, detached)
+powershell -ExecutionPolicy Bypass -File scripts/echo_up.ps1
+
+# Or manual:
+source .venv/Scripts/activate
+export PYTHONPATH=.
+export PATH="/c/Program Files/eSpeak NG:$PATH"
+uvicorn server.app.main:app --host 0.0.0.0 --port 8787
+```
+
+Health checks:
+```bash
+curl http://127.0.0.1:8787/health
+curl https://desktop-re0mlgm.tail7e61ea.ts.net/health
+```
+
+### 24/7 auto-start (one-time, needs admin)
+
+Double-click `scripts/install_service.ps1` (UAC prompt). Registers Task Scheduler
+task `EchoVoiceAgent` at logon.
 
 ---
 
 ## Frontend
 
-Next.js (App Router) + Tailwind + Framer Motion. Source in `web/`.
-
-- **Tap-to-talk** orb (toggle, not hold). Open-mic/VAD mode in Settings.
-- **Blue gradient sound-wave background** ripples while Echo speaks.
-- **Live captions** bar at the bottom (assistant text as it streams).
-- **Mobile responsive** (375px+), voice picker, reset.
-
 ```bash
 cd web
 npm install
-npm run dev        # http://localhost:3000
-npm run build      # production build
-```
-
-WS URL: defaults to the production Funnel; override with `NEXT_PUBLIC_ECHO_WS_URL`.
-
----
-
-## Deploy (frontend to Vercel)
-
-```bash
-cd web
+npm run dev      # uses .env.development.local → ws://127.0.0.1:8787
+npm run build    # uses .env.production → Funnel WSS
 vercel deploy --prod --yes
-# The production WS URL is baked into web/lib/protocol.ts (PRODUCTION_WS_URL),
-# so the deployed app always targets the Funnel.
 ```
 
 ---
 
-## Configuration (`.env`)
+## Therapist design (what makes it exceptional)
 
-Copy `.env.example` → `.env`. Key vars:
+Each spoken turn aims to:
 
-| Var | Default | Notes |
-|---|---|---|
-| `OPENROUTER_API_KEY` / `ECHO_LLM_API_KEY` | — | required for LLM |
-| `ECHO_LLM_MODEL` | `anthropic/claude-haiku-4.5` | swap anytime |
-| `ECHO_LLM_MAX_TOKENS` | `600` | therapist replies need room |
-| `ECHO_STT` | `faster_whisper` | or `parakeet` |
-| `ECHO_TTS_VOICE` | `af_heart` | Kokoro voice id |
-| `ECHO_SYSTEM_PROMPT` | therapist prompt | override the persona |
+1. **Reflect** — name emotion + situation  
+2. **Validate** — make the feeling make sense without empty praise  
+3. **Clarify** — one sharp kind question  
+4. **Challenge** — honest devil’s advocate when they lie to themselves  
+5. **Anchor** — optional small grounding move or fitting philosophy line  
+6. **Close with care** — leave them a little more seen and steady  
+
+Crisis boundary: not a doctor; if someone is in immediate danger, urge local
+emergency / crisis services and stay warm.
 
 ---
 
@@ -130,22 +110,19 @@ Copy `.env.example` → `.env`. Key vars:
 
 ```bash
 source .venv/Scripts/activate
-python scripts/smoke_tts.py        # Kokoro renders audio
-python scripts/smoke_stt.py        # Whisper transcribes
-python scripts/smoke_parakeet.py   # Parakeet (if installed) — rtf ~0.02
-python scripts/smoke_llm.py        # LLM streaming
-python scripts/local_loop.py --text "hi"   # full turn, no network UI
+python scripts/smoke_tts.py
+python scripts/smoke_stt.py
+python scripts/smoke_llm.py
+python scripts/local_loop.py --text "I feel stuck"
 ```
 
 ---
 
-## Known limits (honest)
+## Known limits
 
-- **Your PC must be on** for the public link to work (per design). The detached launcher +
-  Task Scheduler keep it up while the machine is awake; sleep/hibernate/shutdown stops it.
-- One shared agent instance; concurrent sessions queue.
-- The sandbox test browser can't reach `*.ts.net`, so the agent verifies the WSS path via
-  curl/Python rather than a real browser tap — your Chrome connects fine.
+- PC must be awake; sleep/hibernate stops the public link  
+- Single shared agent instance  
+- Funnel domain is machine-specific (`desktop-re0mlgm...`)  
 
 ## License
 
