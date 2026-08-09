@@ -145,6 +145,55 @@ class KokoroBackend(_Backend):
         )
 
 
+class EdgeBackend(_Backend):
+    """Microsoft Edge neural TTS — natural, human, free, no GPU.
+
+    Default voice on this box: slow + soft = most human feel.
+    """
+
+    name = "edge"
+    sample_rate = 24000
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self._mp3_voice = settings.edge_voice
+        self._rate = settings.edge_rate
+        self._pitch = settings.edge_pitch
+
+    def load(self) -> None:
+        try:
+            import edge_tts  # noqa: F401
+        except Exception as e:
+            raise RuntimeError(f"edge_tts not installed: {e}")
+        print(f"[tts] edge ready voice={self._mp3_voice} rate={self._rate}")
+
+    def synthesize(self, text: str, voice: str | None = None) -> AudioChunk:
+        self.load()
+        text = (text or "").strip()
+        if not text:
+            return _empty(text, self.sample_rate)
+        import asyncio
+
+        import edge_tts
+
+        v = voice or self._mp3_voice
+
+        async def _gen() -> bytes:
+            buf = bytearray()
+            comm = edge_tts.Communicate(text, v, rate=self._rate, pitch=self._pitch)
+            async for chunk in comm.stream():
+                if chunk["type"] == "audio":
+                    buf += chunk["data"]
+            return bytes(buf)
+
+        t0 = time.perf_counter()
+        data = asyncio.run(_gen())
+        print(f"[tts] edge synth {len(data)} bytes in {(time.perf_counter()-t0)*1000:.0f}ms")
+        pcm, sr = _pcm_from_audio_bytes(data, preferred_sr=self.sample_rate)
+        self.sample_rate = sr
+        return AudioChunk(pcm_float32=pcm, sample_rate=sr, latency_ms=(time.perf_counter() - t0) * 1000, text=text)
+
+
 class FishLocalBackend(_Backend):
     """In-process fish_speech + fishaudio/s2-pro checkpoints.
 
@@ -510,9 +559,11 @@ class TTSEngine:
         self.backend_name: str = "unloaded"
 
     def _build(self, choice: str) -> _Backend:
-        choice = (choice or "fish").strip().lower()
+        choice = (choice or "edge").strip().lower()
         if choice == "kokoro":
             return KokoroBackend(self.settings)
+        if choice == "edge":
+            return EdgeBackend(self.settings)
         if choice in ("fish", "fish_local", "fish_http", "fish_cloud", "s2-pro", "s2"):
             if choice == "fish_local":
                 return FishLocalBackend(self.settings)
@@ -521,7 +572,7 @@ class TTSEngine:
             if choice == "fish_cloud":
                 return FishCloudBackend(self.settings)
             return FishBackend(self.settings)
-        raise ValueError(f"unknown ECHO_TTS backend: {choice!r} (use fish|kokoro)")
+        raise ValueError(f"unknown ECHO_TTS backend: {choice!r} (use edge|fish|kokoro)")
 
     def load(self) -> None:
         if self._backend is not None:
@@ -551,9 +602,11 @@ class TTSEngine:
         self.load()
         assert self._backend is not None
         # Single fixed voice mode: ignore client multi-voice picker for fish;
-        # Kokoro still accepts settings.tts_voice as the one warm voice.
+        # Edge uses its own voice setting; Kokoro uses settings.tts_voice.
         if self._backend.name.startswith("fish"):
             voice = self.settings.fish_reference_id or None
+        elif self._backend.name == "edge":
+            voice = None  # EdgeBackend reads edge_voice/rate/pitch from settings
         else:
             voice = voice or self.settings.tts_voice
         return self._backend.synthesize(text, voice=voice)

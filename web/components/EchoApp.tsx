@@ -10,7 +10,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Orb } from "@/components/Orb";
-import { Waveform } from "@/components/Waveform";
 import { Transcript } from "@/components/Transcript";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { SpeakingWaves } from "@/components/SpeakingWaves";
@@ -662,17 +661,11 @@ export function EchoApp() {
 
   const handleVoiceChange = useCallback(
     (_v: string) => {
-      // Multi-voice disabled — keep fixed Echo voice.
+      // Single fixed warm voice — no picker. Keep state consistent.
       setVoice(DEFAULT_VOICE);
       voiceRef.current = DEFAULT_VOICE;
-      try {
-        localStorage.setItem(VOICE_STORAGE_KEY, DEFAULT_VOICE);
-      } catch {
-        /* ignore */
-      }
-      send({ type: "config", voice: DEFAULT_VOICE });
     },
-    [send],
+    [],
   );
 
   const handleChatSend = useCallback(
@@ -877,11 +870,6 @@ export function EchoApp() {
                       ? "connecting…"
                       : "tap to talk"
               }
-            />
-
-            <Waveform
-              state={orbState}
-              levels={levels.length ? levels : undefined}
             />
 
             {error && (

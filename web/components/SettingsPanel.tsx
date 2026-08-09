@@ -69,7 +69,7 @@ export function SettingsPanel({
               <p className="mb-2 text-[10px] uppercase tracking-[0.22em] text-zinc-500">
                 Voice
               </p>
-              <div className="rounded-xl bg-[rgba(61,110,245,0.12)] px-3 py-2.5 ring-1 ring-[rgba(99,140,255,0.35)]">
+              <div className="rounded-xl bg-[rgba(212,160,106,0.12)] px-3 py-2.5 ring-1 ring-[rgba(212,160,106,0.28)]">
                 <span className="block text-xs text-zinc-100">
                   {voiceLabel(voice)}
                 </span>
@@ -102,7 +102,7 @@ export function SettingsPanel({
                   </span>
                   <span
                     className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                      openMic ? "bg-[#3d6ef5]" : "bg-white/10"
+                      openMic ? "bg-[#d4a06a]" : "bg-white/10"
                     }`}
                     aria-hidden
                   >

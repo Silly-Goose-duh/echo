@@ -34,12 +34,12 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = DEFAULT_LLM_MODEL
     llm_api_key: str = ""
-    # Keep replies short for voice latency (Vibe: ~180-250).
-    llm_max_tokens: int = 220
-    llm_temperature: float = 0.75
+    # Keep replies very short for voice — understanding, not monologues.
+    llm_max_tokens: int = 140
+    llm_temperature: float = 0.65
     # Lightweight local RAG (markdown chunks; no Supabase required).
     rag_enabled: bool = True
-    rag_top_k: int = 4
+    rag_top_k: int = 3
 
     # env_prefix is "" so bare names work; the ECHO_* aliases match .env.example.
     stt: Literal["faster_whisper", "faster-whisper", "parakeet"] = Field(
@@ -63,10 +63,12 @@ class Settings(BaseSettings):
         ),
     )
 
-    # TTS backend: fish (S2-Pro local/HTTP/cloud) | kokoro (local light fallback).
-    # Default fish; if fish cannot load and tts_fallback_kokoro=True → Kokoro.
-    tts: Literal["fish", "kokoro", "fish_local", "fish_http", "fish_cloud"] = Field(
-        default="fish",
+    # TTS backend: edge (natural neural, slow) | fish (S2-Pro) | kokoro (local light).
+    # Default edge — most human on this box without heavy VRAM.
+    tts: Literal[
+        "edge", "fish", "kokoro", "fish_local", "fish_http", "fish_cloud"
+    ] = Field(
+        default="edge",
         validation_alias=AliasChoices("ECHO_TTS", "TTS", "tts"),
     )
     tts_fallback_kokoro: bool = Field(
@@ -75,7 +77,7 @@ class Settings(BaseSettings):
             "ECHO_TTS_FALLBACK_KOKORO", "TTS_FALLBACK_KOKORO", "tts_fallback_kokoro"
         ),
     )
-    # Kokoro single warm voice (used when backend=kokoro or as fish fallback).
+    # Kokoro single warm voice (used when backend=kokoro or as last fallback).
     tts_voice: str = Field(
         default="af_heart",
         validation_alias=AliasChoices("ECHO_TTS_VOICE", "TTS_VOICE", "tts_voice"),
@@ -83,6 +85,19 @@ class Settings(BaseSettings):
     tts_lang: str = Field(
         default="a",
         validation_alias=AliasChoices("ECHO_TTS_LANG", "TTS_LANG", "tts_lang"),
+    )
+    # Microsoft Edge neural TTS (human, free, no GPU). Slow + soft by default.
+    edge_voice: str = Field(
+        default="en-US-AriaNeural",
+        validation_alias=AliasChoices("ECHO_EDGE_VOICE", "EDGE_VOICE", "edge_voice"),
+    )
+    edge_rate: str = Field(
+        default="-22%",
+        validation_alias=AliasChoices("ECHO_EDGE_RATE", "EDGE_RATE", "edge_rate"),
+    )
+    edge_pitch: str = Field(
+        default="-4Hz",
+        validation_alias=AliasChoices("ECHO_EDGE_PITCH", "EDGE_PITCH", "edge_pitch"),
     )
     # --- Fish Audio S2-Pro ---
     # Local checkpoints (hf download fishaudio/s2-pro --local-dir checkpoints/s2-pro)
