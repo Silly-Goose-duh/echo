@@ -105,8 +105,9 @@ export function EchoApp() {
         voiceRef.current = v;
       }
       const om = localStorage.getItem(OPEN_MIC_STORAGE_KEY);
+      // VAD / open-mic is the default; only "0" turns it off.
       if (om === "0") setOpenMic(false);
-      else if (om === "1") setOpenMic(true);
+      else setOpenMic(true);
       if (localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "1") {
         setAccepted(true);
       }
@@ -761,24 +762,6 @@ export function EchoApp() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Voice | Chat mode toggle */}
-          <div className="flex rounded-full border border-white/[0.08] bg-black/40 p-0.5 backdrop-blur-md">
-            {(["voice", "chat"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => switchMode(m)}
-                className={`rounded-full px-3 py-1.5 text-[11px] tracking-wide transition sm:px-3.5 ${
-                  mode === m
-                    ? "bg-white/10 text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {m === "voice" ? "Voice" : "Chat"}
-              </button>
-            ))}
-          </div>
-
           {mode === "voice" && (
             <SettingsPanel
               open={settingsOpen}
@@ -791,11 +774,22 @@ export function EchoApp() {
               micActive={micActive}
             />
           )}
+          {mode === "chat" && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-full border border-white/[0.08] bg-black/40 px-3.5 py-2
+                text-[11px] tracking-wide text-zinc-400 backdrop-blur-md transition
+                hover:border-white/20 hover:text-zinc-200 active:scale-95"
+            >
+              New chat
+            </button>
+          )}
         </div>
       </header>
 
       {mode === "chat" ? (
-        <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-4 pt-2 sm:px-8">
+        <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-24 pt-2 sm:px-8">
           <ChatPanel
             entries={entries}
             streaming={chatStreaming}
@@ -803,17 +797,6 @@ export function EchoApp() {
             disabled={!connected}
             onSend={handleChatSend}
           />
-          <div className="mt-2 flex w-full max-w-2xl justify-end">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="rounded-full border border-white/[0.08] bg-black/40 px-4 py-2
-                text-xs tracking-wide text-zinc-400 backdrop-blur-md transition
-                hover:border-white/20 hover:text-zinc-200 active:scale-95"
-            >
-              New conversation
-            </button>
-          </div>
         </main>
       ) : (
         <>
@@ -829,7 +812,7 @@ export function EchoApp() {
               disabled={openMic || !connected}
               idleLabel={
                 openMic
-                  ? "open mic — just speak"
+                  ? "listening — just speak"
                   : !connected
                     ? "connecting…"
                     : undefined
@@ -855,19 +838,56 @@ export function EchoApp() {
               gap-3 px-4 sm:px-8"
           >
             <Transcript entries={entries} />
-
-            <button
-              type="button"
-              onClick={handleReset}
-              className="shrink-0 rounded-full border border-white/[0.08] bg-black/40 px-4 py-2.5
-                text-xs tracking-wide text-zinc-400 backdrop-blur-md transition
-                hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-5"
-            >
-              Reset
-            </button>
+            {/* spacer so transcript doesn't sit under the FAB */}
+            <div className="h-14 w-14 shrink-0" aria-hidden />
           </div>
         </>
       )}
+
+      {/* Bottom-right FAB: Chat ↔ Voice */}
+      <button
+        type="button"
+        onClick={() => switchMode(mode === "chat" ? "voice" : "chat")}
+        aria-label={mode === "chat" ? "Back to voice" : "Open chat"}
+        className="echo-pad-bottom fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center
+          justify-center rounded-full border border-white/10 bg-[#3d6ef5] text-white
+          shadow-[0_8px_32px_rgba(61,110,245,0.45)] transition
+          hover:bg-[#4f7dff] active:scale-95 sm:bottom-6 sm:right-6"
+      >
+        {mode === "chat" ? (
+          // mic icon → back to voice / VAD
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M5 11a7 7 0 0 0 14 0M12 18v3"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        ) : (
+          // chat bubble icon
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4 3.5V6.5Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M8.5 9h7M8.5 12h4.5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        )}
+      </button>
     </div>
   );
 }
