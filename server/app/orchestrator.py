@@ -139,6 +139,8 @@ class Orchestrator:
         for sentence in sentences:
             if cancelled():
                 break
+            # Stream text early so the UI can caption before audio arrives.
+            yield ("text", sentence)
             chunk = self.tts.synthesize(sentence, voice=self.current_voice)
             if tts_first == 0.0 and chunk.pcm_float32.size:
                 tts_first = (time.perf_counter() - t0) * 1000

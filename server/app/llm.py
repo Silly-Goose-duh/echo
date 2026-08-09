@@ -91,16 +91,28 @@ def build_messages(
 
 
 def sentence_chunks(token_iter: Iterator[str]) -> Iterator[str]:
-    """Buffer streamed tokens and yield on sentence boundaries."""
+    """Buffer streamed tokens and yield on sentence boundaries.
+
+    Also flushes if the buffer grows very long without punctuation so TTS
+    can start early without waiting forever on a run-on clause.
+    """
     buf: list[str] = []
     terminals = set(".!?…")
+    soft = set(",;:")
     for tok in token_iter:
         buf.append(tok)
         text = "".join(buf)
-        # Yield when we hit terminal punct + space/end-ish
-        if any(text.rstrip().endswith(t) for t in terminals) and (
+        stripped = text.rstrip()
+        if stripped and stripped[-1] in terminals and (
             tok.endswith(" ") or tok.endswith("\n") or text[-1] in terminals
         ):
+            piece = text.strip()
+            if piece:
+                yield piece
+            buf.clear()
+            continue
+        # Soft break: long clause ending in comma/semicolon
+        if len(stripped) >= 140 and stripped[-1] in soft and tok.endswith(" "):
             piece = text.strip()
             if piece:
                 yield piece

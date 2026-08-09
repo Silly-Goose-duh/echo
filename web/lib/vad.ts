@@ -1,35 +1,35 @@
-/** Client-side voice-activity detection: RMS hysteresis + silence hangover.
+/** Client-side VAD: RMS hysteresis + silence hangover + min-speech gate.
  *
- *  Pure state machine so it can be unit-tested outside the browser.
- *  Levels are rmsLevel() output (0–1); `now` is a monotonic ms clock.
+ * Tuned for ChatGPT-voice-like turn taking:
+ *  - ~750ms silence ends an utterance (natural mid-thought pauses ok)
+ *  - min speech duration avoids false ends on brief noise
  */
 
 export type VadEvent = "none" | "speech_start" | "speech_end";
 
 export type VadOptions = {
-  /** Rising threshold: level ≥ this starts an utterance. */
   onLevel?: number;
-  /** Falling threshold: level < this counts as silence. */
   offLevel?: number;
-  /** Continuous silence needed to end an utterance. */
   silenceMs?: number;
+  /** Ignore speech_end until utterance has lasted at least this long. */
+  minSpeechMs?: number;
 };
 
 export type Vad = {
-  /** Feed one audio frame; returns the transition it caused (if any). */
   push(level: number, now: number): VadEvent;
-  /** True while inside an utterance. */
   readonly speaking: boolean;
   reset(): void;
 };
 
 export function createVad({
-  onLevel = 0.16,
-  offLevel = 0.09,
-  silenceMs = 500,
+  onLevel = 0.14,
+  offLevel = 0.08,
+  silenceMs = 750,
+  minSpeechMs = 350,
 }: VadOptions = {}): Vad {
   let speaking = false;
   let silenceSince: number | null = null;
+  let speechStartedAt: number | null = null;
 
   return {
     get speaking() {
@@ -38,12 +38,14 @@ export function createVad({
     reset() {
       speaking = false;
       silenceSince = null;
+      speechStartedAt = null;
     },
     push(level, now) {
       if (!speaking) {
         if (level < onLevel) return "none";
         speaking = true;
         silenceSince = null;
+        speechStartedAt = now;
         return "speech_start";
       }
       if (level >= offLevel) {
@@ -55,8 +57,17 @@ export function createVad({
         return "none";
       }
       if (now - silenceSince < silenceMs) return "none";
+      // Too short to count as a real utterance — keep listening.
+      if (
+        speechStartedAt != null &&
+        now - speechStartedAt < minSpeechMs
+      ) {
+        silenceSince = now;
+        return "none";
+      }
       speaking = false;
       silenceSince = null;
+      speechStartedAt = null;
       return "speech_end";
     },
   };

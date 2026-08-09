@@ -47,6 +47,38 @@ def _b64_pcm16(pcm_f32: np.ndarray) -> str:
     return base64.b64encode(pcm16.tobytes()).decode("ascii")
 
 
+# ~250ms frames at 24 kHz — keeps WS JSON under ~25KB and avoids frame-size drops.
+_TTS_FRAME_SAMPLES = 6000
+
+
+def _audio_frames(pcm_f32: np.ndarray, sample_rate: int, text: str, tts_ms: float):
+    """Yield JSON-ready audio frames, chunking long TTS output."""
+    n = int(pcm_f32.size)
+    if n == 0:
+        return
+    if n <= _TTS_FRAME_SAMPLES * 2:
+        yield {
+            "type": "audio",
+            "pcm16": _b64_pcm16(pcm_f32),
+            "sr": sample_rate,
+            "text": text,
+            "tts_ms": tts_ms,
+        }
+        return
+    # First frame carries the sentence text for captions; rest are silent-text.
+    first = True
+    for i in range(0, n, _TTS_FRAME_SAMPLES):
+        sl = pcm_f32[i : i + _TTS_FRAME_SAMPLES]
+        yield {
+            "type": "audio",
+            "pcm16": _b64_pcm16(sl),
+            "sr": sample_rate,
+            "text": text if first else "",
+            "tts_ms": tts_ms if first else 0.0,
+        }
+        first = False
+
+
 def _decode_pcm16(b64: str) -> bytes:
     return base64.b64decode(b64)
 
@@ -210,18 +242,27 @@ async def _stream_turn(
             kind, payload = event
             if cancel.is_set():
                 continue  # interrupted: drain silently, drop queued audio
-            if kind == "audio":
-                if payload.pcm_float32.size == 0:
-                    continue
+            if kind == "text":
+                # Partial assistant sentence (before / alongside TTS).
                 await ws.send_json(
                     {
-                        "type": "audio",
-                        "pcm16": _b64_pcm16(payload.pcm_float32),
-                        "sr": payload.sample_rate,
-                        "text": payload.text,
-                        "tts_ms": payload.latency_ms,
+                        "type": "assistant_text",
+                        "text": str(payload),
+                        "final": False,
                     }
                 )
+            elif kind == "audio":
+                if payload.pcm_float32.size == 0:
+                    continue
+                for frame in _audio_frames(
+                    payload.pcm_float32,
+                    payload.sample_rate,
+                    payload.text,
+                    payload.latency_ms,
+                ):
+                    if cancel.is_set():
+                        break
+                    await ws.send_json(frame)
             elif kind == "done":
                 result: TurnResult = payload
                 if result.assistant_text:

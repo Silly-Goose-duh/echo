@@ -8,7 +8,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { SpeakingWaves } from "@/components/SpeakingWaves";
 import { Captions } from "@/components/Captions";
 import { useEchoSocket } from "@/hooks/useEchoSocket";
-import { floatTo16Base64, playPcm16Base64, rmsLevel } from "@/lib/audio";
+import { floatTo16Base64, playPcm16Base64, rmsLevel, base64Pcm16ToFloat32 } from "@/lib/audio";
 import { createVad } from "@/lib/vad";
 import {
   DEFAULT_VOICE,
@@ -42,7 +42,7 @@ export function EchoApp() {
   const [caption, setCaption] = useState("");
 
   const [voice, setVoice] = useState<string>(DEFAULT_VOICE);
-  const [openMic, setOpenMic] = useState(false);
+  const [openMic, setOpenMic] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [micPhase, setMicPhase] = useState<MicPhase>("off");
   /** Tap-to-talk: true between the first tap and the second. */
@@ -66,7 +66,9 @@ export function EchoApp() {
   const voiceRef = useRef(DEFAULT_VOICE);
   const capturingRef = useRef(false);
   const speakingRef = useRef(false); // gate: assistant is talking / thinking
-  const vadRef = useRef(createVad());
+  const vadRef = useRef(
+    createVad({ silenceMs: 750, minSpeechMs: 350, onLevel: 0.14, offLevel: 0.08 }),
+  );
   const prerollRef = useRef<Float32Array[]>([]);
 
   const pushEntry = useCallback((entry: Omit<TranscriptEntry, "id" | "ts">) => {
@@ -85,7 +87,9 @@ export function EchoApp() {
         voiceRef.current = v;
       }
       const om = localStorage.getItem(OPEN_MIC_STORAGE_KEY);
-      if (om === "1") setOpenMic(true);
+      // Default continuous conversation (ChatGPT-like) unless user opted out.
+      if (om === "0") setOpenMic(false);
+      else if (om === "1") setOpenMic(true);
     } catch {
       /* ignore */
     }
@@ -126,12 +130,18 @@ export function EchoApp() {
       }
 
       if (msg.type === "assistant_text") {
-        if (msg.final !== false) {
-          pushEntry({ role: "assistant", text: msg.text });
-          // Text-only turns (no TTS) still deserve captions.
-          setCaption((prev) => (prev.trim() ? prev : msg.text));
+        if (msg.final === false) {
+          // Partial sentence from server — show live caption for this clause.
+          const piece = (msg.text || "").trim();
+          if (piece) {
+            setCaption((prev) => {
+              if (prev.endsWith(piece)) return prev;
+              return prev ? `${prev} ${piece}` : piece;
+            });
+          }
         } else {
-          setCaption(msg.text);
+          pushEntry({ role: "assistant", text: msg.text });
+          setCaption((prev) => (prev.trim() ? prev : msg.text));
         }
         return;
       }
@@ -144,19 +154,29 @@ export function EchoApp() {
         const pcm = msg.pcm16;
         const chunkText = msg.text?.trim() ?? "";
         const gen = playGenRef.current;
+        // Drive background waveform from this frame's energy.
+        try {
+          const f32 = base64Pcm16ToFloat32(pcm);
+          const lvl = rmsLevel(f32);
+          const next = levelBufRef.current.slice(1);
+          next.push(Math.max(0.12, Math.min(1, lvl * 1.35)));
+          levelBufRef.current = next;
+          setLevels([...next]);
+        } catch {
+          /* ignore level probe errors */
+        }
         playQueueRef.current = playQueueRef.current.then(async () => {
           if (gen !== playGenRef.current) return; // interrupted — drop chunk
-          // Caption the sentence at the moment it starts playing, so the
-          // text on screen matches what is actually being heard.
           if (chunkText) {
-            setCaption((prev) => (prev ? `${prev} ${chunkText}` : chunkText));
+            setCaption((prev) => {
+              if (prev.endsWith(chunkText)) return prev;
+              return prev ? `${prev} ${chunkText}` : chunkText;
+            });
           }
           try {
             const ctx = await getAudioCtx();
-            // Prefer native rate for TTS playback (often 24 kHz)
             let playCtx = ctx;
             if (Math.abs(ctx.sampleRate - sr) > 1) {
-              // Use a one-off context matching TTS rate when needed
               playCtx = new AudioContext({ sampleRate: sr });
             }
             await playPcm16Base64(pcm, sr, playCtx, (src) => {
@@ -335,7 +355,23 @@ export function EchoApp() {
 
           // ---- open mic / client-side VAD ----
           if (!openMicRef.current) return;
-          if (speakingRef.current) return; // assistant turn in flight
+
+          // ChatGPT-like barge-in: only interrupt assistant on clear speech
+          // (higher threshold so TTS bleed / room noise won't cut Echo off).
+          if (speakingRef.current) {
+            if (level < 0.32) return;
+            // User started talking over Echo — cut playback + let server barge-in.
+            speakingRef.current = false;
+            playGenRef.current += 1;
+            try {
+              activeSrcRef.current?.stop();
+            } catch {
+              /* already stopped */
+            }
+            activeSrcRef.current = null;
+            playQueueRef.current = Promise.resolve();
+            // Fall through so VAD can open a new utterance.
+          }
 
           const emit = (pcm: Float32Array) =>
             send({
@@ -577,7 +613,7 @@ export function EchoApp() {
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-hidden">
       {/* Hero visual: flowing blue waves while Echo speaks */}
-      <SpeakingWaves active={orbState === "speaking"} />
+      <SpeakingWaves active={orbState === "speaking"} levels={levels} />
 
       {/* ---- top bar ---- */}
       <header className="echo-pad-top relative z-30 flex items-start justify-between gap-3 px-4 sm:px-8">
