@@ -2,7 +2,7 @@
 
 Warm therapist-style companion — short simple words. Voice or chat.
 
-**Live:** https://echotherapist.vercel.app
+**Live:** https://sheleftme.vercel.app
 
 ## Modes
 - **Voice** — talk (open mic / tap)
