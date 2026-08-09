@@ -12,9 +12,10 @@ import { Onboarding } from "@/components/Onboarding";
 import { useEchoSocket } from "@/hooks/useEchoSocket";
 import {
   floatTo16Base64,
-  playPcm16Base64,
+  playPcm16Base64Seamless,
   rmsLevel,
   base64Pcm16ToFloat32,
+  bumpPlaybackGeneration,
 } from "@/lib/audio";
 import { createVad } from "@/lib/vad";
 import {
@@ -176,26 +177,20 @@ export function EchoApp() {
       if (msg.type === "assistant_text") {
         if (msg.final === false) {
           const piece = (msg.text || "").trim();
-          if (piece) {
-            setCaption((prev) => {
+          if (piece && modeRef.current === "chat") {
+            // Chat: stream text. Voice captions follow audio only (sync).
+            setChatStreaming((prev) => {
               if (prev.endsWith(piece)) return prev;
-              return prev ? `${prev} ${piece}` : piece;
+              if (!prev) return piece;
+              if (piece.includes("\n") || piece.length > 160) return piece;
+              return `${prev} ${piece}`;
             });
-            if (modeRef.current === "chat") {
-              setChatStreaming((prev) => {
-                if (prev.endsWith(piece)) return prev;
-                // Safety replies arrive as one blob; partials are sentences.
-                if (!prev) return piece;
-                // Guardrail messages are multi-line full dumps
-                if (piece.includes("\n") || piece.length > 200) return piece;
-                return `${prev} ${piece}`;
-              });
-            }
           }
         } else {
           pushEntry({ role: "assistant", text: msg.text });
-          setCaption((prev) => (prev.trim() ? prev : msg.text));
-          setChatStreaming("");
+          if (modeRef.current === "chat") {
+            setChatStreaming("");
+          }
           setChatBusy(false);
         }
         return;
@@ -209,7 +204,6 @@ export function EchoApp() {
         const pcm = msg.pcm16;
         const chunkText = msg.text?.trim() ?? "";
         const gen = playGenRef.current;
-        // Drive background waveform from this frame's energy.
         try {
           const f32 = base64Pcm16ToFloat32(pcm);
           const lvl = rmsLevel(f32);
@@ -218,29 +212,24 @@ export function EchoApp() {
           levelBufRef.current = next;
           setLevels([...next]);
         } catch {
-          /* ignore level probe errors */
+          /* ignore */
         }
         playQueueRef.current = playQueueRef.current.then(async () => {
-          if (gen !== playGenRef.current) return; // interrupted — drop chunk
+          if (gen !== playGenRef.current) return;
+          // Caption = sentence currently being spoken (matches this audio).
           if (chunkText) {
-            setCaption((prev) => {
-              if (prev.endsWith(chunkText)) return prev;
-              return prev ? `${prev} ${chunkText}` : chunkText;
-            });
+            setCaption(chunkText);
           }
           try {
-            const ctx = await getAudioCtx();
-            let playCtx = ctx;
-            if (Math.abs(ctx.sampleRate - sr) > 1) {
-              playCtx = new AudioContext({ sampleRate: sr });
-            }
-            await playPcm16Base64(pcm, sr, playCtx, (src) => {
-              activeSrcRef.current = src;
-            });
+            await playPcm16Base64Seamless(
+              pcm,
+              sr,
+              (src) => {
+                activeSrcRef.current = src;
+              },
+              gen,
+            );
             activeSrcRef.current = null;
-            if (playCtx !== ctx) {
-              await playCtx.close().catch(() => undefined);
-            }
           } catch (e) {
             console.error("playback failed", e);
           }
@@ -249,9 +238,8 @@ export function EchoApp() {
       }
 
       if (msg.type === "interrupted") {
-        // Server aborted the in-flight turn (barge-in): stop playback now,
-        // drop any queued audio, and reset like a turn_end.
         playGenRef.current += 1;
+        bumpPlaybackGeneration();
         try {
           activeSrcRef.current?.stop();
         } catch {
@@ -313,6 +301,7 @@ export function EchoApp() {
             );
           }
           speakingRef.current = false;
+          setCaption("");
           vadRef.current.reset();
           prerollRef.current = [];
           if (
@@ -444,6 +433,7 @@ export function EchoApp() {
             // User started talking over Echo — cut playback + let server barge-in.
             speakingRef.current = false;
             playGenRef.current += 1;
+            bumpPlaybackGeneration();
             try {
               activeSrcRef.current?.stop();
             } catch {
@@ -451,6 +441,7 @@ export function EchoApp() {
             }
             activeSrcRef.current = null;
             playQueueRef.current = Promise.resolve();
+            setCaption("");
             // Fall through so VAD can open a new utterance.
           }
 
@@ -522,6 +513,7 @@ export function EchoApp() {
     }
     // Tapping while Echo is talking is a barge-in: cut playback locally too.
     playGenRef.current += 1;
+    bumpPlaybackGeneration();
     try {
       activeSrcRef.current?.stop();
     } catch {
@@ -529,6 +521,7 @@ export function EchoApp() {
     }
     activeSrcRef.current = null;
     playQueueRef.current = Promise.resolve();
+    setCaption("");
 
     listeningRef.current = true;
     setListening(true);
@@ -664,6 +657,7 @@ export function EchoApp() {
     vadRef.current.reset();
     prerollRef.current = [];
     playGenRef.current += 1;
+    bumpPlaybackGeneration();
     try {
       activeSrcRef.current?.stop();
     } catch {
@@ -749,7 +743,7 @@ export function EchoApp() {
             ECHO
           </h1>
           <p className="mt-0.5 text-[10px] tracking-[0.18em] text-zinc-600 sm:text-[11px]">
-            existential companion
+            therapist companion
           </p>
           <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-600">
             <span

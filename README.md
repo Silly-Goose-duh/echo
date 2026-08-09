@@ -1,49 +1,26 @@
 # Echo
 
-Existential thinking companion — voice or text. Local STT/TTS on GPU, LLM via API.
+Warm therapist-style companion — short simple words. Voice or chat.
 
 **Live:** https://echotherapist.vercel.app
 
 ## Modes
+- **Voice** — talk (open mic / tap)
+- **Chat** — type like a friend
 
-- **Voice** — open-mic / tap-to-talk, captions, blue waveforms
-- **Chat** — type like a friend (no TTS, faster)
-
-## Persona
-
-Existential psychotherapy (Frankl, Yalom, May, Kierkegaard, Camus…).  
-Hard crisis guardrails (Tele-MANAS 14416, iCall, Vandrevala) run *before* the LLM.
-
-> Not a therapist, doctor, or crisis service. No diagnosis.
-
-## Stack
-
-| Layer | Tech |
-|--------|------|
-| STT | Faster-Whisper |
-| TTS | Kokoro-82M |
-| LLM | OpenRouter |
-| Server | FastAPI WebSocket |
-| Tunnel | Tailscale Funnel |
-| UI | Next.js |
+## Design
+- Short replies (1–3 sentences), plain language
+- Captions match the sentence currently speaking
+- Crisis safety before the model (Tele-MANAS 14416, iCall, Vandrevala)
+- Not a licensed clinician; no diagnosis / meds
 
 ## Run
-
 ```bash
-# Server
-source .venv/Scripts/activate
-export PYTHONPATH=.
+source .venv/Scripts/activate && export PYTHONPATH=.
 uvicorn server.app.main:app --host 0.0.0.0 --port 8787
-
-# Or Windows detached + funnel
-powershell -ExecutionPolicy Bypass -File scripts/echo_up.ps1
-
-# Frontend
+# frontend
 cd web && npm i && npm run dev
 ```
 
-Copy `.env.example` → `.env` (`OPENROUTER_API_KEY`).
-
 ## License
-
 MIT (code). Models keep their licenses.

@@ -47,16 +47,17 @@ def _b64_pcm16(pcm_f32: np.ndarray) -> str:
     return base64.b64encode(pcm16.tobytes()).decode("ascii")
 
 
-# ~250ms frames at 24 kHz — keeps WS JSON under ~25KB and avoids frame-size drops.
-_TTS_FRAME_SAMPLES = 6000
+# ~500ms frames at 24 kHz — fewer cuts, still small WS payloads.
+_TTS_FRAME_SAMPLES = 12000
 
 
 def _audio_frames(pcm_f32: np.ndarray, sample_rate: int, text: str, tts_ms: float):
-    """Yield JSON-ready audio frames, chunking long TTS output."""
+    """Yield audio frames. Prefer one frame per sentence when short enough."""
     n = int(pcm_f32.size)
     if n == 0:
         return
-    if n <= _TTS_FRAME_SAMPLES * 2:
+    # Under ~2.5s → single frame (caption text once, clean play).
+    if n <= _TTS_FRAME_SAMPLES * 5:
         yield {
             "type": "audio",
             "pcm16": _b64_pcm16(pcm_f32),
@@ -65,7 +66,6 @@ def _audio_frames(pcm_f32: np.ndarray, sample_rate: int, text: str, tts_ms: floa
             "tts_ms": tts_ms,
         }
         return
-    # First frame carries the sentence text for captions; rest are silent-text.
     first = True
     for i in range(0, n, _TTS_FRAME_SAMPLES):
         sl = pcm_f32[i : i + _TTS_FRAME_SAMPLES]

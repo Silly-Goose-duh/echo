@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .persona import EXISTENTIAL_SYSTEM_PROMPT
+from .persona import THERAPIST_SYSTEM_PROMPT
 
-# Fast + thoughtful enough for voice and chat.
+# Fast enough for short spoken replies.
 DEFAULT_LLM_MODEL = "anthropic/claude-haiku-4.5"
 
 # Resolve repo root: server/app/config.py -> parents[2] == echo/
@@ -34,9 +34,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = DEFAULT_LLM_MODEL
     llm_api_key: str = ""
-    # Max tokens per assistant turn. Therapist replies need room to explain,
-    # but keep it bounded for voice latency.
-    llm_max_tokens: int = 1200
+    # Keep replies short for voice latency.
+    llm_max_tokens: int = 220
 
     # env_prefix is "" so bare names work; the ECHO_* aliases match .env.example.
     stt: Literal["faster_whisper", "faster-whisper", "parakeet"] = Field(
@@ -72,7 +71,7 @@ class Settings(BaseSettings):
     ws_host: str = "0.0.0.0"
     ws_port: int = 8787
     sample_rate_in: int = 16000
-    system_prompt: str = EXISTENTIAL_SYSTEM_PROMPT
+    system_prompt: str = THERAPIST_SYSTEM_PROMPT
 
     def resolve_api_key(self) -> str:
         for candidate in (

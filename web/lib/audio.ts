@@ -1,6 +1,5 @@
-/** PCM16 LE mono helpers for Echo WebSocket audio. */
+/** PCM16 LE mono helpers + seamless TTS playback for Echo. */
 
-/** Float32 [-1,1] → base64 int16le */
 export function floatTo16Base64(float32: Float32Array): string {
   const i16 = new Int16Array(float32.length);
   for (let i = 0; i < float32.length; i++) {
@@ -10,10 +9,13 @@ export function floatTo16Base64(float32: Float32Array): string {
   return bytesToBase64(new Uint8Array(i16.buffer));
 }
 
-/** base64 int16le → Float32Array */
 export function base64Pcm16ToFloat32(b64: string): Float32Array {
   const bytes = base64ToBytes(b64);
-  const i16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+  const i16 = new Int16Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength / 2,
+  );
   const f32 = new Float32Array(i16.length);
   for (let i = 0; i < i16.length; i++) {
     f32[i] = i16[i] / 32768;
@@ -37,37 +39,78 @@ export function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-/** Play a base64 PCM16 mono buffer; resolves when playback ends.
- * `onSource` (optional) receives the live AudioBufferSourceNode so callers
- * can stop playback early (barge-in).
+/** Shared TTS playback graph (Kokoro = 24 kHz). */
+let ttsCtx: AudioContext | null = null;
+let ttsNextTime = 0;
+
+/** Call on barge-in / reset so the next clip starts cleanly. */
+export function bumpPlaybackGeneration(): void {
+  ttsNextTime = 0;
+}
+
+export function getTtsContext(sampleRate = 24000): AudioContext {
+  if (!ttsCtx || ttsCtx.state === "closed") {
+    ttsCtx = new AudioContext({ sampleRate });
+    ttsNextTime = 0;
+  }
+  return ttsCtx;
+}
+
+/**
+ * Queue PCM16 onto a seamless timeline (no gaps between consecutive clips).
+ * Resolves when this clip finishes (or is stopped).
  */
-export async function playPcm16Base64(
+export async function playPcm16Base64Seamless(
   b64: string,
   sampleRate: number,
-  audioCtx: AudioContext,
   onSource?: (src: AudioBufferSourceNode) => void,
+  _gen?: number,
 ): Promise<void> {
   const f32 = base64Pcm16ToFloat32(b64);
   if (f32.length === 0) return;
-  if (audioCtx.state === "suspended") {
-    await audioCtx.resume();
+
+  const ctx = getTtsContext(sampleRate);
+  if (ctx.state === "suspended") {
+    await ctx.resume();
   }
-  const buf = audioCtx.createBuffer(1, f32.length, sampleRate);
-  // Copy into a fresh ArrayBuffer-backed view for DOM lib typings
+
+  const buf = ctx.createBuffer(1, f32.length, sampleRate);
   const channel = new Float32Array(f32.length);
   channel.set(f32);
   buf.copyToChannel(channel, 0);
-  const src = audioCtx.createBufferSource();
+
+  const src = ctx.createBufferSource();
   src.buffer = buf;
-  src.connect(audioCtx.destination);
+  src.connect(ctx.destination);
   onSource?.(src);
-  src.start();
+
+  const now = ctx.currentTime;
+  const startAt = Math.max(now + 0.015, ttsNextTime || now + 0.015);
+  ttsNextTime = startAt + buf.duration;
+  src.start(startAt);
+
   await new Promise<void>((resolve) => {
-    src.onended = () => resolve();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    src.onended = finish;
+    // If stop() is called for barge-in, onended still fires.
   });
 }
 
-/** Simple RMS level 0–1 from a float chunk (for waveform placeholder). */
+/** @deprecated prefer seamless */
+export async function playPcm16Base64(
+  b64: string,
+  sampleRate: number,
+  _audioCtx: AudioContext,
+  onSource?: (src: AudioBufferSourceNode) => void,
+): Promise<void> {
+  return playPcm16Base64Seamless(b64, sampleRate, onSource);
+}
+
 export function rmsLevel(float32: Float32Array): number {
   if (float32.length === 0) return 0;
   let sum = 0;

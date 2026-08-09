@@ -42,7 +42,7 @@ def stream_chat(
         model=s.llm_model,
         messages=messages,  # type: ignore[arg-type]
         stream=True,
-        temperature=0.8,
+        temperature=0.65,
         max_tokens=s.llm_max_tokens,
     )
     for chunk in stream:
@@ -65,7 +65,7 @@ async def astream_chat(
         model=s.llm_model,
         messages=messages,  # type: ignore[arg-type]
         stream=True,
-        temperature=0.8,
+        temperature=0.65,
         max_tokens=s.llm_max_tokens,
     )
     async for chunk in stream:
@@ -91,14 +91,9 @@ def build_messages(
 
 
 def sentence_chunks(token_iter: Iterator[str]) -> Iterator[str]:
-    """Buffer streamed tokens and yield on sentence boundaries.
-
-    Also flushes if the buffer grows very long without punctuation so TTS
-    can start early without waiting forever on a run-on clause.
-    """
+    """Yield on sentence boundaries only (short therapist replies)."""
     buf: list[str] = []
     terminals = set(".!?…")
-    soft = set(",;:")
     for tok in token_iter:
         buf.append(tok)
         text = "".join(buf)
@@ -106,13 +101,6 @@ def sentence_chunks(token_iter: Iterator[str]) -> Iterator[str]:
         if stripped and stripped[-1] in terminals and (
             tok.endswith(" ") or tok.endswith("\n") or text[-1] in terminals
         ):
-            piece = text.strip()
-            if piece:
-                yield piece
-            buf.clear()
-            continue
-        # Soft break: long clause ending in comma/semicolon
-        if len(stripped) >= 140 and stripped[-1] in soft and tok.endswith(" "):
             piece = text.strip()
             if piece:
                 yield piece

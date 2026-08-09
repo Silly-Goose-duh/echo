@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Echo — Existential Companion",
+  title: "Echo — Therapist Companion",
   description:
-    "A thinking companion for existential questions. Voice or chat. Not a therapist or crisis service.",
+    "A warm, simple therapist-style companion. Voice or chat. Not a crisis service.",
 };
 
 export const viewport: Viewport = {
