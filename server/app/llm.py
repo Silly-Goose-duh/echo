@@ -42,7 +42,7 @@ def stream_chat(
         model=s.llm_model,
         messages=messages,  # type: ignore[arg-type]
         stream=True,
-        temperature=0.65,
+        temperature=s.llm_temperature,
         max_tokens=s.llm_max_tokens,
     )
     for chunk in stream:
@@ -65,7 +65,7 @@ async def astream_chat(
         model=s.llm_model,
         messages=messages,  # type: ignore[arg-type]
         stream=True,
-        temperature=0.65,
+        temperature=s.llm_temperature,
         max_tokens=s.llm_max_tokens,
     )
     async for chunk in stream:
@@ -82,9 +82,13 @@ def build_messages(
     user_text: str,
     *,
     settings: Settings | None = None,
+    rag_context: str | None = None,
 ) -> list[dict[str, str]]:
     s = settings or get_settings()
-    msgs: list[dict[str, str]] = [{"role": "system", "content": s.system_prompt}]
+    system = s.system_prompt
+    if rag_context and rag_context.strip():
+        system = f"{system}\n\n{rag_context.strip()}"
+    msgs: list[dict[str, str]] = [{"role": "system", "content": system}]
     msgs.extend(history)
     msgs.append({"role": "user", "content": user_text})
     return msgs

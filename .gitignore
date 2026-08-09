@@ -37,3 +37,6 @@ echo_*.err
 web/.env.local
 web/.env.development.local
 web/.env*.local
+
+.hermes/
+checkpoints/

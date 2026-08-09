@@ -5,13 +5,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Short enough to speak aloud cleanly.
+# Short enough to speak aloud cleanly. India-first resources + global fallbacks.
 CRISIS_MESSAGE = (
     "I hear you, and I'm really glad you said something. "
     "I'm not a crisis line, and you deserve real help right now. "
-    "Please call Tele-MANAS at 14416 — it's free, 24/7, in many languages. "
+    "In India, please call Kiran at 1800-599-0019, or Tele-MANAS at 14416 — "
+    "both free and 24/7. "
     "You can also try iCall at 9152987821, or Vandrevala at 9999666555. "
-    "If you're outside India, call your local emergency number or 988 in the US. "
+    "If you're outside India, call your local emergency number, 988 in the US, "
+    "or find a local line at findahelpline.com. "
     "I'm still here with you."
 )
 
@@ -39,6 +41,8 @@ _CRISIS_PATTERNS: list[re.Pattern[str]] = [
         r"\b(plan to (kill|hurt) (myself|someone))\b",
         r"\bi don't want to (be )?alive\b",
         r"\bno reason to live\b",
+        r"\b(can't go on|cannot go on)\b",
+        r"\beveryone would be better off\b",
     )
 ]
 

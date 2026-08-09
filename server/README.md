@@ -19,6 +19,15 @@ uvicorn server.app.main:app --host 0.0.0.0 --port 8787
 
 Default bind: `0.0.0.0:8787`. Env: see repo `.env.example` (`ECHO_WS_HOST`, `ECHO_WS_PORT`, LLM/STT/TTS keys).
 
+### TTS backends (`ECHO_TTS`)
+
+| Value | Behavior |
+|-------|----------|
+| `fish` (default) | Try local S2-Pro → `ECHO_FISH_URL` HTTP → `FISH_API_KEY` cloud; then Kokoro if `ECHO_TTS_FALLBACK_KOKORO=1` |
+| `kokoro` | Local Kokoro-82M only (single voice `ECHO_TTS_VOICE`, default `af_heart`) |
+
+Local S2-Pro: install [fish-speech](https://github.com/fishaudio/fish-speech) in a **separate** env (pins torch 2.8), download `fishaudio/s2-pro` into `checkpoints/s2-pro`. Official VRAM: **24GB** — not for RTX 5050 8GB + STT.
+
 Health check: `GET http://127.0.0.1:8787/health` → `{"ok":true,"service":"echo"}`.
 
 ## API surface

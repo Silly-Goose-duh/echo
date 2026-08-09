@@ -11,6 +11,7 @@ from typing import Any
 from .config import Settings, get_settings
 from .guardrails import check_message
 from .llm import build_messages, sentence_chunks, stream_chat
+from .rag import format_rag_context, retrieve
 from .stt import STTEngine, Transcript
 from .tts import AudioChunk, TTSEngine
 
@@ -43,7 +44,11 @@ class Orchestrator:
         self.stt = stt or STTEngine(self.settings)
         self.tts = tts or TTSEngine(self.settings)
         self.history: list[dict[str, str]] = []
-        self.current_voice: str = self.settings.tts_voice
+        self.current_voice: str = (
+            self.settings.fish_reference_id
+            or self.settings.tts_voice
+            or "echo"
+        ).strip() or "echo"
         self.open_mic: bool = False
 
     def load(self) -> None:
@@ -51,9 +56,28 @@ class Orchestrator:
         self.tts.load()
 
     def set_voice(self, voice: str) -> str:
-        voice = (voice or "").strip()
-        if voice:
-            self.current_voice = voice
+        """Single fixed warm voice — client picker disabled; keep stub for WS compat."""
+        # Prefer configured fish reference / kokoro voice; ignore multi-voice ids.
+        fixed = (self.settings.fish_reference_id or self.settings.tts_voice or "echo").strip()
+        incoming = (voice or "").strip()
+        # Only accept non-legacy explicit overrides that look like fish ref ids
+        # (not old Kokoro pack names), when fish_reference_id is empty.
+        if incoming and incoming not in (
+            "af_heart",
+            "af_alloy",
+            "af_aoi",
+            "af_nova",
+            "af_sky",
+            "am_michael",
+            "bf_emma",
+            "bm_george",
+        ):
+            if not self.settings.fish_reference_id and self.settings.tts in (
+                "kokoro",
+            ):
+                self.current_voice = incoming
+                return self.current_voice
+        self.current_voice = fixed
         return self.current_voice
 
     def reset(self) -> None:
@@ -140,7 +164,21 @@ class Orchestrator:
             )
             return
 
-        messages = build_messages(self.history, user_text, settings=self.settings)
+        # --- Lightweight RAG (local markdown; no Supabase) ---
+        rag_context = ""
+        if self.settings.rag_enabled:
+            try:
+                chunks = retrieve(user_text, top_k=self.settings.rag_top_k)
+                rag_context = format_rag_context(chunks)
+            except Exception:
+                rag_context = ""
+
+        messages = build_messages(
+            self.history,
+            user_text,
+            settings=self.settings,
+            rag_context=rag_context or None,
+        )
         t_llm = time.perf_counter()
         first_token_ms = 0.0
         collected: list[str] = []

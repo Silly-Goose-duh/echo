@@ -19,7 +19,17 @@ silero-vad>=5.1
 faster-whisper>=1.1.0
 
 # TTS
+# Default path: Fish Audio S2-Pro (ECHO_TTS=fish). Local S2-Pro needs ~24GB VRAM
+# (official) + `fish_speech` from https://github.com/fishaudio/fish-speech and
+# `hf download fishaudio/s2-pro --local-dir checkpoints/s2-pro`.
+# On 8GB cards Echo auto-falls back to Kokoro unless ECHO_TTS_FALLBACK_KOKORO=0.
 kokoro>=0.9.4
+# Optional hosted Fish path (same ECHO_TTS=fish resolution order: local → HTTP → cloud):
+fish-audio-sdk>=1.0.0
+# Optional: point ECHO_FISH_URL at a fish-speech API server (tools/api_server.py).
+# Do NOT pip-install full fish-speech into this venv on the 8GB box — it pins
+# torch==2.8.0 and conflicts with the CUDA 12.8 stack used by STT. Prefer a
+# separate env/Docker with 24GB+ GPU, or FISH_API_KEY cloud.
 
 # Optional Parakeet TDT path (ECHO_STT=parakeet). Not installed by default.
 # Uses native transformers Parakeet support — NeMo is NOT required.

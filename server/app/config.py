@@ -34,8 +34,12 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = DEFAULT_LLM_MODEL
     llm_api_key: str = ""
-    # Keep replies short for voice latency.
+    # Keep replies short for voice latency (Vibe: ~180-250).
     llm_max_tokens: int = 220
+    llm_temperature: float = 0.75
+    # Lightweight local RAG (markdown chunks; no Supabase required).
+    rag_enabled: bool = True
+    rag_top_k: int = 4
 
     # env_prefix is "" so bare names work; the ECHO_* aliases match .env.example.
     stt: Literal["faster_whisper", "faster-whisper", "parakeet"] = Field(
@@ -59,8 +63,84 @@ class Settings(BaseSettings):
         ),
     )
 
-    tts_voice: str = "af_heart"
-    tts_lang: str = "a"
+    # TTS backend: fish (S2-Pro local/HTTP/cloud) | kokoro (local light fallback).
+    # Default fish; if fish cannot load and tts_fallback_kokoro=True → Kokoro.
+    tts: Literal["fish", "kokoro", "fish_local", "fish_http", "fish_cloud"] = Field(
+        default="fish",
+        validation_alias=AliasChoices("ECHO_TTS", "TTS", "tts"),
+    )
+    tts_fallback_kokoro: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "ECHO_TTS_FALLBACK_KOKORO", "TTS_FALLBACK_KOKORO", "tts_fallback_kokoro"
+        ),
+    )
+    # Kokoro single warm voice (used when backend=kokoro or as fish fallback).
+    tts_voice: str = Field(
+        default="af_heart",
+        validation_alias=AliasChoices("ECHO_TTS_VOICE", "TTS_VOICE", "tts_voice"),
+    )
+    tts_lang: str = Field(
+        default="a",
+        validation_alias=AliasChoices("ECHO_TTS_LANG", "TTS_LANG", "tts_lang"),
+    )
+    # --- Fish Audio S2-Pro ---
+    # Local checkpoints (hf download fishaudio/s2-pro --local-dir checkpoints/s2-pro)
+    fish_checkpoint_dir: str = Field(
+        default=str(_REPO_ROOT / "checkpoints" / "s2-pro"),
+        validation_alias=AliasChoices(
+            "ECHO_FISH_CHECKPOINT_DIR", "FISH_CHECKPOINT_DIR", "fish_checkpoint_dir"
+        ),
+    )
+    fish_codec_path: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ECHO_FISH_CODEC_PATH", "FISH_CODEC_PATH", "fish_codec_path"
+        ),
+    )
+    fish_decoder_config: str = Field(
+        default="modded_dac_vq",
+        validation_alias=AliasChoices(
+            "ECHO_FISH_DECODER_CONFIG", "FISH_DECODER_CONFIG", "fish_decoder_config"
+        ),
+    )
+    fish_half: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ECHO_FISH_HALF", "FISH_HALF", "fish_half"),
+    )
+    # Optional local/remote fish-speech API (tools/api_server.py), e.g. http://127.0.0.1:8080
+    fish_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("ECHO_FISH_URL", "FISH_URL", "fish_url"),
+    )
+    # Hosted Fish Audio API key (also accepts FISH_API_KEY).
+    fish_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ECHO_FISH_API_KEY", "FISH_API_KEY", "fish_api_key"
+        ),
+    )
+    # Cloud model id (s2-pro / s2.1-pro depending on account).
+    fish_cloud_model: str = Field(
+        default="s2-pro",
+        validation_alias=AliasChoices(
+            "ECHO_FISH_CLOUD_MODEL", "FISH_CLOUD_MODEL", "fish_cloud_model"
+        ),
+    )
+    # Fixed single reference voice id (local ref folder name or cloud voice id).
+    # Empty → model default timbre (no multi-voice picker).
+    fish_reference_id: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ECHO_FISH_REFERENCE_ID", "FISH_REFERENCE_ID", "fish_reference_id"
+        ),
+    )
+    fish_max_new_tokens: int = Field(
+        default=1024,
+        validation_alias=AliasChoices(
+            "ECHO_FISH_MAX_NEW_TOKENS", "FISH_MAX_NEW_TOKENS", "fish_max_new_tokens"
+        ),
+    )
 
     device: str = "cuda"
     # Stream TTS per sentence as soon as the first sentence is available.

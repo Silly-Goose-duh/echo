@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { VOICES, voiceLabel } from "@/lib/voices";
+import { voiceLabel } from "@/lib/voices";
 
 type Props = {
   open: boolean;
@@ -20,7 +20,7 @@ export function SettingsPanel({
   open,
   onToggleOpen,
   voice,
-  onVoiceChange,
+  onVoiceChange: _onVoiceChange,
   openMic,
   onOpenMicChange,
   micLabel,
@@ -28,6 +28,9 @@ export function SettingsPanel({
   disabled,
   sessionStarted,
 }: Props) {
+  // Multi-voice picker removed — single fixed warm voice (Fish S2-Pro / Kokoro).
+  void _onVoiceChange;
+
   return (
     <div className="relative shrink-0">
       <button
@@ -66,28 +69,13 @@ export function SettingsPanel({
               <p className="mb-2 text-[10px] uppercase tracking-[0.22em] text-zinc-500">
                 Voice
               </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {VOICES.map((v) => {
-                  const selected = v.id === voice;
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => onVoiceChange(v.id)}
-                      className={`rounded-xl px-2.5 py-2.5 text-left transition disabled:opacity-40 ${
-                        selected
-                          ? "bg-[rgba(61,110,245,0.18)] text-zinc-100 ring-1 ring-[rgba(99,140,255,0.45)]"
-                          : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-                      }`}
-                    >
-                      <span className="block text-xs">{v.label}</span>
-                      <span className="block text-[10px] text-zinc-600">
-                        {v.hint}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="rounded-xl bg-[rgba(61,110,245,0.12)] px-3 py-2.5 ring-1 ring-[rgba(99,140,255,0.35)]">
+                <span className="block text-xs text-zinc-100">
+                  {voiceLabel(voice)}
+                </span>
+                <span className="block text-[10px] text-zinc-500">
+                  single warm voice · server-fixed
+                </span>
               </div>
 
               <div className="mt-4 border-t border-white/[0.06] pt-3">

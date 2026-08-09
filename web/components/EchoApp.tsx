@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * sheleftme shell — late-night companion UI.
+ * Visual redesign: warm ink neutrals + amber accent, soft lantern presence,
+ * editorial captions, calm ambient field (not sci-fi blue orb).
+ * Behavior preserved: first orb tap → session + VAD; FAB Chat↔Voice;
+ * captions = currently playing audio sentence; audio/WS protocol unchanged.
+ */
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Orb } from "@/components/Orb";
 import { Waveform } from "@/components/Waveform";
@@ -23,7 +31,6 @@ import {
   DEFAULT_VOICE,
   OPEN_MIC_STORAGE_KEY,
   VOICE_STORAGE_KEY,
-  voiceLabel,
 } from "@/lib/voices";
 import {
   AppMode,
@@ -102,10 +109,13 @@ export function EchoApp() {
   // Restore persisted preferences + disclaimer
   useEffect(() => {
     try {
-      const v = localStorage.getItem(VOICE_STORAGE_KEY);
-      if (v) {
-        setVoice(v);
-        voiceRef.current = v;
+      // Single fixed voice — ignore legacy multi-voice localStorage ids.
+      setVoice(DEFAULT_VOICE);
+      voiceRef.current = DEFAULT_VOICE;
+      try {
+        localStorage.setItem(VOICE_STORAGE_KEY, DEFAULT_VOICE);
+      } catch {
+        /* ignore */
       }
       const om = localStorage.getItem(OPEN_MIC_STORAGE_KEY);
       // Preference only applies after session start; default VAD on when they tap.
@@ -651,20 +661,18 @@ export function EchoApp() {
   }, [openMic, mode, sessionStarted, isOpen, send]);
 
   const handleVoiceChange = useCallback(
-    (v: string) => {
-      setVoice(v);
-      voiceRef.current = v;
+    (_v: string) => {
+      // Multi-voice disabled — keep fixed Echo voice.
+      setVoice(DEFAULT_VOICE);
+      voiceRef.current = DEFAULT_VOICE;
       try {
-        localStorage.setItem(VOICE_STORAGE_KEY, v);
+        localStorage.setItem(VOICE_STORAGE_KEY, DEFAULT_VOICE);
       } catch {
         /* ignore */
       }
-      const sent = send({ type: "config", voice: v });
-      if (sent) {
-        pushEntry({ role: "system", text: `voice → ${voiceLabel(v)} (${v})` });
-      }
+      send({ type: "config", voice: DEFAULT_VOICE });
     },
-    [pushEntry, send],
+    [send],
   );
 
   const handleChatSend = useCallback(
@@ -763,7 +771,7 @@ export function EchoApp() {
           : "Tap the orb when you want to talk.";
 
   if (!ready) {
-    return <div className="min-h-dvh bg-[#07080c]" />;
+    return <div className="min-h-dvh bg-[#100e0c]" />;
   }
 
   if (!accepted) {
@@ -777,27 +785,35 @@ export function EchoApp() {
         levels={levels}
       />
 
-      <header className="echo-pad-top relative z-30 flex items-start justify-between gap-3 px-4 sm:px-8">
-        <div className="glass-soft echo-float-in min-w-0 rounded-2xl px-3.5 py-2.5">
-          <h1 className="text-[11px] font-medium tracking-[0.28em] text-zinc-200 sm:text-xs">
-            sheleftme
-          </h1>
-          <p className="mt-0.5 text-[10px] tracking-[0.16em] text-zinc-500 sm:text-[11px]">
-            someone to talk to
-          </p>
-          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
+      {/* Quiet top bar — brand + status, minimal chrome */}
+      <header className="echo-pad-top relative z-30 flex items-center justify-between gap-3 px-5 sm:px-8">
+        <div className="echo-float-in min-w-0">
+          <div className="flex items-center gap-2.5">
             <span
-              className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
-                connected
-                  ? "bg-emerald-400/90 shadow-[0_0_8px_rgba(52,211,153,0.55)]"
+              className="hidden h-2 w-2 shrink-0 rounded-full sm:block"
+              style={{
+                background: connected
+                  ? "var(--accent-soft)"
                   : status === "connecting"
-                    ? "bg-amber-400/80 animate-pulse"
-                    : "bg-zinc-600"
-              }`}
+                    ? "var(--accent)"
+                    : "var(--foreground-faint)",
+                boxShadow: connected
+                  ? "0 0 10px rgba(232,196,154,0.55)"
+                  : undefined,
+                animation:
+                  status === "connecting" ? "echo-breathe 1.4s ease-in-out infinite" : undefined,
+              }}
               aria-hidden
             />
-            <span className="truncate">{statusLabel}</span>
-          </p>
+            <div className="min-w-0">
+              <h1 className="brand-wordmark truncate text-[1.05rem] leading-none tracking-tight text-[#f3eee6] sm:text-lg">
+                sheleftme
+              </h1>
+              <p className="mt-1 truncate text-[11px] tracking-wide text-[var(--foreground-faint)]">
+                {statusLabel}
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -822,7 +838,7 @@ export function EchoApp() {
               type="button"
               onClick={handleReset}
               className="glass-soft rounded-full px-3.5 py-2 text-[11px] tracking-wide
-                text-zinc-400 transition hover:text-zinc-200 active:scale-95"
+                text-[var(--foreground-muted)] transition hover:text-[#f3eee6] active:scale-95"
             >
               New chat
             </button>
@@ -831,7 +847,7 @@ export function EchoApp() {
       </header>
 
       {mode === "chat" ? (
-        <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-24 pt-2 sm:px-8">
+        <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-24 pt-1 sm:px-8">
           <ChatPanel
             entries={entries}
             streaming={chatStreaming}
@@ -843,8 +859,8 @@ export function EchoApp() {
       ) : (
         <>
           <main
-            className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8
-              px-5 py-10 sm:gap-10 sm:px-8"
+            className="relative z-10 flex flex-1 flex-col items-center justify-center gap-9
+              px-5 pb-28 pt-6 sm:gap-11 sm:px-8"
           >
             <Orb
               state={orbState}
@@ -869,7 +885,7 @@ export function EchoApp() {
             />
 
             {error && (
-              <p className="glass-soft max-w-sm rounded-full px-4 py-2 text-balance text-center text-xs text-red-300/90">
+              <p className="glass-soft max-w-sm rounded-full px-4 py-2 text-balance text-center text-xs text-[var(--danger)]">
                 {error}
               </p>
             )}
@@ -879,7 +895,7 @@ export function EchoApp() {
 
           <div
             className="echo-pad-bottom fixed inset-x-0 bottom-0 z-30 flex items-end justify-between
-              gap-3 px-4 sm:px-8"
+              gap-3 px-5 sm:px-8"
           >
             <Transcript entries={entries} />
             <div className="h-14 w-14 shrink-0" aria-hidden />
@@ -893,7 +909,7 @@ export function EchoApp() {
         onClick={() => switchMode(mode === "chat" ? "voice" : "chat")}
         aria-label={mode === "chat" ? "Back to voice" : "Open chat"}
         className="glass-fab echo-pad-bottom fixed bottom-4 right-4 z-40 flex h-14 w-14
-          items-center justify-center rounded-full text-white transition
+          items-center justify-center rounded-full transition
           hover:brightness-110 active:scale-95 sm:bottom-6 sm:right-6"
       >
         {mode === "chat" ? (

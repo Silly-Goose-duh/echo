@@ -6,11 +6,11 @@ Client → server:
   {"type":"end_utt"}                      # user released PTT — run turn on buffer
   {"type":"text","text":"..."}            # text-only turn (debug)
   {"type":"reset"}
-  {"type":"config","voice":"af_heart","open_mic":true}
-      # session config; all fields optional. `voice` selects the Kokoro voice
-      # used for subsequent TTS (overrides the server TTS_VOICE setting for
-      # this session only). `open_mic` is informational — the client streams
-      # continuously and sends end_utt itself from client-side VAD.
+  {"type":"config","voice":"echo","open_mic":true}
+      # session config; all fields optional. `voice` is a stub (single fixed
+      # warm voice server-side — multi-voice picker removed). `open_mic` is
+      # informational — the client streams continuously and sends end_utt
+      # itself from client-side VAD.
 
 Server → client:
   {"type":"ready"}
@@ -19,7 +19,7 @@ Server → client:
   {"type":"assistant_text","text":"...","final":false}
   {"type":"audio","pcm16":"<base64>","sr":24000,"text":"sentence"}
   {"type":"interrupted"}                  # in-flight turn aborted by barge-in
-  {"type":"config_ok","voice":"af_heart","open_mic":true}
+  {"type":"config_ok","voice":"echo","open_mic":true}
   {"type":"turn_end","metrics":{...}}
   {"type":"error","message":"..."}
 """

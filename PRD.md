@@ -25,7 +25,8 @@ See original PRD in conversation history / this file as source of truth for prod
 |---|---|---|
 | STT primary target | Parakeet TDT 0.6B v3 via NeMo | Heavy install; may fall back |
 | STT MVP / fallback | Faster-Whisper large-v3-turbo | Default until Parakeet proven on sm_120 Windows |
-| TTS | Kokoro-82M (`kokoro` pip) | Apache 2.0, ~2-3GB |
+| TTS primary | Fish Audio S2-Pro (`ECHO_TTS=fish`) | Local needs ~24GB VRAM; cloud/HTTP optional |
+| TTS fallback | Kokoro-82M (`kokoro` pip) | Default on 8GB via auto-fallback |
 | VAD | Silero VAD | CPU |
 | LLM | OpenRouter → Claude Haiku 4.5 (or equiv) | Anthropic key not present; OpenRouter is |
 | Server | FastAPI + WebSocket | Local persistent process |

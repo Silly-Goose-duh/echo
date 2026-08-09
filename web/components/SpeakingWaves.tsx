@@ -1,36 +1,25 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo } from "react";
 
 type Props = {
   active: boolean;
-  /** Live 0–1 levels (mic or playback). Drives bar amplitude when speaking. */
+  /** Live 0–1 levels (mic or playback). Softly modulates bloom intensity. */
   levels?: number[];
 };
 
-const BAR_COUNT = 48;
-
 /**
- * Full-screen blue waveform field while Echo is speaking.
- * Uses live levels when available; otherwise a smooth synthetic pulse.
+ * Full-screen warm ambient field while speaking —
+ * soft drifting blooms, not sci-fi bar waveforms.
  */
 export function SpeakingWaves({ active, levels }: Props) {
-  const bars = useMemo(() => {
-    if (levels && levels.length > 0) {
-      // Resample incoming levels into BAR_COUNT slots
-      const out: number[] = [];
-      for (let i = 0; i < BAR_COUNT; i++) {
-        const src = Math.floor((i / BAR_COUNT) * levels.length);
-        out.push(Math.max(0.08, Math.min(1, levels[src] ?? 0.12)));
-      }
-      return out;
-    }
-    return Array.from({ length: BAR_COUNT }, (_, i) => {
-      const t = (i / BAR_COUNT) * Math.PI * 2;
-      return 0.18 + Math.abs(Math.sin(t * 1.7)) * 0.55;
-    });
-  }, [levels]);
+  const energy =
+    levels && levels.length
+      ? Math.min(
+          1,
+          levels.reduce((a, b) => a + b, 0) / levels.length / 0.45,
+        )
+      : 0.55;
 
   return (
     <AnimatePresence>
@@ -42,81 +31,61 @@ export function SpeakingWaves({ active, levels }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.55, ease: "easeInOut" }}
+          transition={{ duration: 0.65, ease: "easeInOut" }}
         >
-          {/* Deep blue wash */}
+          {/* Warm dusk wash */}
           <div
             className="absolute inset-0"
             style={{
               background:
-                "radial-gradient(ellipse 90% 70% at 50% 55%, rgba(35,70,180,0.45) 0%, rgba(12,20,48,0.55) 45%, rgba(10,10,10,0.92) 100%)",
+                "radial-gradient(ellipse 95% 75% at 50% 48%, rgba(120,78,42,0.32) 0%, rgba(40,30,22,0.5) 48%, rgba(16,14,12,0.92) 100%)",
             }}
           />
 
-          {/* Soft aura behind orb */}
+          {/* Ember core behind presence */}
           <div
-            className="echo-aura absolute left-1/2 top-[42%] h-[120vmin] w-[120vmin] -translate-x-1/2 -translate-y-1/2 rounded-full"
+            className="echo-aura absolute left-1/2 top-[44%] h-[95vmin] w-[95vmin] -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              background: `radial-gradient(circle, rgba(224,180,138,${0.28 + energy * 0.22}) 0%, rgba(176,122,69,0.14) 38%, transparent 68%)`,
+            }}
+          />
+
+          {/* Soft drifting blooms */}
+          <div
+            className="echo-drift absolute left-[8%] top-[28%] h-[42vmin] w-[42vmin] rounded-full opacity-70"
             style={{
               background:
-                "radial-gradient(circle, rgba(61,110,245,0.5) 0%, rgba(99,140,255,0.18) 40%, transparent 70%)",
+                "radial-gradient(circle, rgba(212,160,106,0.2) 0%, transparent 70%)",
+              filter: "blur(8px)",
             }}
           />
-
-          {/* Center mirrored waveform bars — the hero visual */}
-          <div className="absolute inset-x-0 top-1/2 flex h-[42vh] -translate-y-1/2 items-center justify-center px-3 sm:px-10">
-            <div className="flex h-full w-full max-w-5xl items-center justify-center gap-[2px] sm:gap-[3px]">
-              {bars.map((level, i) => {
-                const h = Math.max(0.1, Math.min(1, level));
-                // Mirror energy: outer bars slightly quieter
-                const edge = 1 - Math.abs(i - BAR_COUNT / 2) / (BAR_COUNT / 2);
-                const amp = h * (0.45 + edge * 0.55);
-                return (
-                  <motion.span
-                    key={i}
-                    className="w-[3px] rounded-full sm:w-[4px]"
-                    style={{
-                      background:
-                        "linear-gradient(to top, rgba(45,90,220,0.35), #3d6ef5 35%, #8fb0ff 70%, #b8d0ff)",
-                      boxShadow: "0 0 12px rgba(99,140,255,0.35)",
-                    }}
-                    animate={{
-                      height: `${12 + amp * 42}vh`,
-                      opacity: 0.45 + amp * 0.55,
-                    }}
-                    transition={
-                      levels
-                        ? { duration: 0.08, ease: "easeOut" }
-                        : {
-                            duration: 0.9 + (i % 5) * 0.08,
-                            repeat: Infinity,
-                            repeatType: "mirror",
-                            ease: "easeInOut",
-                            delay: (i % 9) * 0.05,
-                          }
-                    }
-                  />
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Soft horizontal wave ribbons at bottom */}
           <div
-            className="absolute inset-x-0 bottom-0 h-[38%]"
+            className="echo-drift absolute right-[6%] top-[40%] h-[36vmin] w-[36vmin] rounded-full opacity-60"
             style={{
               background:
-                "linear-gradient(to top, rgba(30,70,200,0.35), transparent)",
+                "radial-gradient(circle, rgba(160,110,90,0.18) 0%, transparent 70%)",
+              filter: "blur(10px)",
+              animationDelay: "-7s",
             }}
           />
+          <div
+            className="echo-ember absolute bottom-[18%] left-1/2 h-[28vmin] w-[70vmin] -translate-x-1/2 rounded-full"
+            style={{
+              background:
+                "radial-gradient(ellipse, rgba(212,160,106,0.16) 0%, transparent 70%)",
+            }}
+          />
+
+          {/* Gentle horizontal shimmer band */}
           <div
             data-echo-wave
-            className="absolute inset-x-0 bottom-[8%] h-24 opacity-70"
+            className="absolute inset-x-0 top-[52%] h-32 -translate-y-1/2 opacity-40"
             style={{
               background:
-                "repeating-linear-gradient(90deg, transparent 0 18px, rgba(126,224,184,0.08) 18px 20px)",
-              animation: "echo-wave-x 18s linear infinite",
+                "linear-gradient(90deg, transparent, rgba(232,196,154,0.12), transparent)",
+              animation: "echo-wave-x 22s linear infinite",
               maskImage:
-                "linear-gradient(to right, transparent, black 15%, black 85%, transparent)",
+                "linear-gradient(to right, transparent, black 20%, black 80%, transparent)",
             }}
           />
 
@@ -125,7 +94,7 @@ export function SpeakingWaves({ active, levels }: Props) {
             className="absolute inset-0"
             style={{
               background:
-                "linear-gradient(to bottom, rgba(10,10,10,0.55) 0%, rgba(10,10,10,0.08) 28%, rgba(10,10,10,0.05) 55%, rgba(10,10,10,0.5) 100%)",
+                "linear-gradient(to bottom, rgba(16,14,12,0.55) 0%, rgba(16,14,12,0.08) 30%, rgba(16,14,12,0.06) 58%, rgba(16,14,12,0.55) 100%)",
             }}
           />
         </motion.div>
