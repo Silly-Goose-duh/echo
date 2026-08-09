@@ -7,8 +7,15 @@ import { Transcript } from "@/components/Transcript";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { SpeakingWaves } from "@/components/SpeakingWaves";
 import { Captions } from "@/components/Captions";
+import { ChatPanel } from "@/components/ChatPanel";
+import { Onboarding } from "@/components/Onboarding";
 import { useEchoSocket } from "@/hooks/useEchoSocket";
-import { floatTo16Base64, playPcm16Base64, rmsLevel, base64Pcm16ToFloat32 } from "@/lib/audio";
+import {
+  floatTo16Base64,
+  playPcm16Base64,
+  rmsLevel,
+  base64Pcm16ToFloat32,
+} from "@/lib/audio";
 import { createVad } from "@/lib/vad";
 import {
   DEFAULT_VOICE,
@@ -17,7 +24,10 @@ import {
   voiceLabel,
 } from "@/lib/voices";
 import {
+  AppMode,
   DEFAULT_WS_URL,
+  DISCLAIMER_STORAGE_KEY,
+  MODE_STORAGE_KEY,
   OrbState,
   ServerMessage,
   TranscriptEntry,
@@ -33,6 +43,11 @@ const PREROLL_CHUNKS = 2;
 type MicPhase = "off" | "idle" | "armed" | "speech" | "error";
 
 export function EchoApp() {
+  const [ready, setReady] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+  const [mode, setMode] = useState<AppMode>("voice");
+  const modeRef = useRef<AppMode>("voice");
+
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [levels, setLevels] = useState<number[]>([]);
@@ -40,6 +55,8 @@ export function EchoApp() {
   const [error, setError] = useState<string | null>(null);
   /** Text of the assistant turn currently being spoken (live captions). */
   const [caption, setCaption] = useState("");
+  const [chatStreaming, setChatStreaming] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
 
   const [voice, setVoice] = useState<string>(DEFAULT_VOICE);
   const [openMic, setOpenMic] = useState(true);
@@ -78,7 +95,7 @@ export function EchoApp() {
   /** Start of a new user turn — wipe the assistant captions. */
   const clearCaption = useCallback(() => setCaption(""), []);
 
-  // Restore persisted preferences
+  // Restore persisted preferences + disclaimer
   useEffect(() => {
     try {
       const v = localStorage.getItem(VOICE_STORAGE_KEY);
@@ -87,9 +104,36 @@ export function EchoApp() {
         voiceRef.current = v;
       }
       const om = localStorage.getItem(OPEN_MIC_STORAGE_KEY);
-      // Default continuous conversation (ChatGPT-like) unless user opted out.
       if (om === "0") setOpenMic(false);
       else if (om === "1") setOpenMic(true);
+      if (localStorage.getItem(DISCLAIMER_STORAGE_KEY) === "1") {
+        setAccepted(true);
+      }
+      const m = localStorage.getItem(MODE_STORAGE_KEY);
+      if (m === "chat" || m === "voice") {
+        setMode(m);
+        modeRef.current = m;
+      }
+    } catch {
+      /* ignore */
+    }
+    setReady(true);
+  }, []);
+
+  const acceptDisclaimer = useCallback(() => {
+    try {
+      localStorage.setItem(DISCLAIMER_STORAGE_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+    setAccepted(true);
+  }, []);
+
+  const switchMode = useCallback((m: AppMode) => {
+    modeRef.current = m;
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, m);
     } catch {
       /* ignore */
     }
@@ -131,17 +175,28 @@ export function EchoApp() {
 
       if (msg.type === "assistant_text") {
         if (msg.final === false) {
-          // Partial sentence from server — show live caption for this clause.
           const piece = (msg.text || "").trim();
           if (piece) {
             setCaption((prev) => {
               if (prev.endsWith(piece)) return prev;
               return prev ? `${prev} ${piece}` : piece;
             });
+            if (modeRef.current === "chat") {
+              setChatStreaming((prev) => {
+                if (prev.endsWith(piece)) return prev;
+                // Safety replies arrive as one blob; partials are sentences.
+                if (!prev) return piece;
+                // Guardrail messages are multi-line full dumps
+                if (piece.includes("\n") || piece.length > 200) return piece;
+                return `${prev} ${piece}`;
+              });
+            }
           }
         } else {
           pushEntry({ role: "assistant", text: msg.text });
           setCaption((prev) => (prev.trim() ? prev : msg.text));
+          setChatStreaming("");
+          setChatBusy(false);
         }
         return;
       }
@@ -224,23 +279,47 @@ export function EchoApp() {
           m.tts_first_audio_ms != null
             ? `tts ${Math.round(m.tts_first_audio_ms)}ms`
             : null,
+          m.guardrail ? `safety:${m.guardrail}` : null,
         ].filter(Boolean);
-        if (bits.length) {
+        if (bits.length && modeRef.current === "voice") {
           pushEntry({
             role: "system",
             text: bits.join(" · "),
           });
         }
+        if (m.guardrail === "crisis" || m.guardrail === "diagnosis" || m.guardrail === "med") {
+          setEntries((prev) => {
+            const next = [...prev];
+            for (let i = next.length - 1; i >= 0; i--) {
+              if (next[i].role === "assistant") {
+                next[i] = { ...next[i], meta: m.guardrail };
+                break;
+              }
+            }
+            return next;
+          });
+        }
+        setChatStreaming("");
+        setChatBusy(false);
         playQueueRef.current = playQueueRef.current.then(() => {
           if (!listeningRef.current) {
             setOrbState("idle");
-            setStatusLabel(openMicRef.current ? "listening for you…" : "ready");
+            setStatusLabel(
+              modeRef.current === "chat"
+                ? "ready"
+                : openMicRef.current
+                  ? "listening for you…"
+                  : "ready",
+            );
           }
-          // Re-open the mic for the next utterance
           speakingRef.current = false;
           vadRef.current.reset();
           prerollRef.current = [];
-          if (openMicRef.current && capturingRef.current) {
+          if (
+            modeRef.current === "voice" &&
+            openMicRef.current &&
+            capturingRef.current
+          ) {
             setMicPhase("armed");
           }
         });
@@ -250,6 +329,8 @@ export function EchoApp() {
       if (msg.type === "error") {
         setError(msg.message);
         setStatusLabel("error");
+        setChatBusy(false);
+        setChatStreaming("");
         pushEntry({ role: "system", text: `error: ${msg.message}` });
         speakingRef.current = false;
         vadRef.current.reset();
@@ -487,13 +568,21 @@ export function EchoApp() {
     }
   }, [startListening, stopListening]);
 
-  // ---- open mic lifecycle ----
+  // ---- open mic lifecycle (voice mode only) ----
   useEffect(() => {
-    openMicRef.current = openMic;
+    openMicRef.current = openMic && mode === "voice";
     try {
       localStorage.setItem(OPEN_MIC_STORAGE_KEY, openMic ? "1" : "0");
     } catch {
       /* ignore */
+    }
+
+    if (mode !== "voice") {
+      if (capturingRef.current) cleanupMic();
+      setMicPhase("off");
+      listeningRef.current = false;
+      setListening(false);
+      return;
     }
 
     if (openMic) {
@@ -519,19 +608,18 @@ export function EchoApp() {
       };
     }
 
-    // turning off
     if (capturingRef.current) cleanupMic();
     setMicPhase("off");
     vadRef.current.reset();
     setOrbState((s) => (s === "listening" ? "idle" : s));
     return;
-  }, [openMic, cleanupMic, startCapture]);
+  }, [openMic, mode, cleanupMic, startCapture]);
 
   // Tell the server whenever open-mic toggles (informational)
   useEffect(() => {
     if (!isOpen) return;
-    send({ type: "config", open_mic: openMic });
-  }, [openMic, isOpen, send]);
+    send({ type: "config", open_mic: openMic && mode === "voice" });
+  }, [openMic, mode, isOpen, send]);
 
   const handleVoiceChange = useCallback(
     (v: string) => {
@@ -550,6 +638,25 @@ export function EchoApp() {
     [pushEntry, send],
   );
 
+  const handleChatSend = useCallback(
+    (text: string) => {
+      if (!isOpen) {
+        setError("Not connected to server");
+        return;
+      }
+      pushEntry({ role: "user", text });
+      setChatBusy(true);
+      setChatStreaming("");
+      setCaption("");
+      setError(null);
+      setOrbState("processing");
+      setStatusLabel("thinking…");
+      // Chat mode: text only (no TTS) for snappy friend-chat feel
+      send({ type: "text", text, speak: false });
+    },
+    [isOpen, pushEntry, send],
+  );
+
   const handleReset = useCallback(() => {
     listeningRef.current = false;
     setListening(false);
@@ -564,20 +671,31 @@ export function EchoApp() {
     }
     activeSrcRef.current = null;
     playQueueRef.current = Promise.resolve();
-    if (!openMicRef.current) {
+    if (!openMicRef.current || modeRef.current === "chat") {
       cleanupMic();
       setMicPhase("off");
     } else {
       setMicPhase("armed");
     }
     reset();
-    // reset() wipes server session state; re-apply the chosen voice
-    send({ type: "config", voice: voiceRef.current, open_mic: openMicRef.current });
+    send({
+      type: "config",
+      voice: voiceRef.current,
+      open_mic: openMicRef.current && modeRef.current === "voice",
+    });
     setEntries([]);
     setError(null);
     setCaption("");
+    setChatStreaming("");
+    setChatBusy(false);
     setOrbState("idle");
-    setStatusLabel(openMicRef.current ? "listening for you…" : "ready");
+    setStatusLabel(
+      modeRef.current === "chat"
+        ? "ready"
+        : openMicRef.current
+          ? "listening for you…"
+          : "ready",
+    );
   }, [cleanupMic, reset, send]);
 
   // Stop everything on unmount
@@ -610,19 +728,28 @@ export function EchoApp() {
         ? "Whenever you're ready — just start talking."
         : "Whenever you're ready — tap the orb and talk.";
 
+  if (!ready) {
+    return <div className="min-h-dvh bg-[#0A0A0A]" />;
+  }
+
+  if (!accepted) {
+    return <Onboarding onAccept={acceptDisclaimer} />;
+  }
+
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-hidden">
-      {/* Hero visual: flowing blue waves while Echo speaks */}
-      <SpeakingWaves active={orbState === "speaking"} levels={levels} />
+      <SpeakingWaves
+        active={mode === "voice" && orbState === "speaking"}
+        levels={levels}
+      />
 
-      {/* ---- top bar ---- */}
       <header className="echo-pad-top relative z-30 flex items-start justify-between gap-3 px-4 sm:px-8">
         <div className="min-w-0">
           <h1 className="text-[11px] font-medium tracking-[0.34em] text-zinc-300 sm:text-xs">
             ECHO
           </h1>
           <p className="mt-0.5 text-[10px] tracking-[0.18em] text-zinc-600 sm:text-[11px]">
-            voice therapist
+            existential companion
           </p>
           <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-600">
             <span
@@ -639,67 +766,114 @@ export function EchoApp() {
           </p>
         </div>
 
-        <SettingsPanel
-          open={settingsOpen}
-          onToggleOpen={() => setSettingsOpen((o) => !o)}
-          voice={voice}
-          onVoiceChange={handleVoiceChange}
-          openMic={openMic}
-          onOpenMicChange={setOpenMic}
-          micLabel={micLabel}
-          micActive={micActive}
-        />
+        <div className="flex items-center gap-2">
+          {/* Voice | Chat mode toggle */}
+          <div className="flex rounded-full border border-white/[0.08] bg-black/40 p-0.5 backdrop-blur-md">
+            {(["voice", "chat"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => switchMode(m)}
+                className={`rounded-full px-3 py-1.5 text-[11px] tracking-wide transition sm:px-3.5 ${
+                  mode === m
+                    ? "bg-white/10 text-zinc-100"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {m === "voice" ? "Voice" : "Chat"}
+              </button>
+            ))}
+          </div>
+
+          {mode === "voice" && (
+            <SettingsPanel
+              open={settingsOpen}
+              onToggleOpen={() => setSettingsOpen((o) => !o)}
+              voice={voice}
+              onVoiceChange={handleVoiceChange}
+              openMic={openMic}
+              onOpenMicChange={setOpenMic}
+              micLabel={micLabel}
+              micActive={micActive}
+            />
+          )}
+        </div>
       </header>
 
-      {/* ---- centre stage ---- */}
-      <main
-        className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8
-          px-5 py-10 sm:gap-10 sm:px-8"
-      >
-        <Orb
-          state={orbState}
-          onToggle={handleOrbToggle}
-          listening={listening}
-          passive={openMic}
-          disabled={openMic || !connected}
-          idleLabel={
-            openMic
-              ? "open mic — just speak"
-              : !connected
-                ? "connecting…"
-                : undefined
-          }
-        />
+      {mode === "chat" ? (
+        <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-4 pt-2 sm:px-8">
+          <ChatPanel
+            entries={entries}
+            streaming={chatStreaming}
+            busy={chatBusy}
+            disabled={!connected}
+            onSend={handleChatSend}
+          />
+          <div className="mt-2 flex w-full max-w-2xl justify-end">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-full border border-white/[0.08] bg-black/40 px-4 py-2
+                text-xs tracking-wide text-zinc-400 backdrop-blur-md transition
+                hover:border-white/20 hover:text-zinc-200 active:scale-95"
+            >
+              New conversation
+            </button>
+          </div>
+        </main>
+      ) : (
+        <>
+          <main
+            className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8
+              px-5 py-10 sm:gap-10 sm:px-8"
+          >
+            <Orb
+              state={orbState}
+              onToggle={handleOrbToggle}
+              listening={listening}
+              passive={openMic}
+              disabled={openMic || !connected}
+              idleLabel={
+                openMic
+                  ? "open mic — just speak"
+                  : !connected
+                    ? "connecting…"
+                    : undefined
+              }
+            />
 
-        <Waveform state={orbState} levels={levels.length ? levels : undefined} />
+            <Waveform
+              state={orbState}
+              levels={levels.length ? levels : undefined}
+            />
 
-        {error && (
-          <p className="max-w-sm text-balance text-center text-xs text-red-400/90">
-            {error}
-          </p>
-        )}
-      </main>
+            {error && (
+              <p className="max-w-sm text-balance text-center text-xs text-red-400/90">
+                {error}
+              </p>
+            )}
+          </main>
 
-      {/* ---- live captions ---- */}
-      <Captions state={orbState} text={caption} idleHint={captionHint} />
+          <Captions state={orbState} text={caption} idleHint={captionHint} />
 
-      {/* ---- bottom controls ---- */}
-      <div
-        className="echo-pad-bottom fixed inset-x-0 bottom-0 z-30 flex items-end justify-between
-          gap-3 px-4 sm:px-8"
-      >
-        <Transcript entries={entries} />
+          <div
+            className="echo-pad-bottom fixed inset-x-0 bottom-0 z-30 flex items-end justify-between
+              gap-3 px-4 sm:px-8"
+          >
+            <Transcript entries={entries} />
 
-        <button
-          type="button"
-          onClick={handleReset}
-          className="shrink-0 rounded-full border border-white/[0.08] bg-black/40 px-4 py-2.5
-            text-xs tracking-wide text-zinc-400 backdrop-blur-md transition
-            hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-5"
-        >
-          Reset
-        </button>
-      </div>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="shrink-0 rounded-full border border-white/[0.08] bg-black/40 px-4 py-2.5
+                text-xs tracking-wide text-zinc-400 backdrop-blur-md transition
+                hover:border-white/20 hover:text-zinc-200 active:scale-95 sm:px-5"
+            >
+              Reset
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

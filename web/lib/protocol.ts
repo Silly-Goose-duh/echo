@@ -4,13 +4,8 @@ export type ClientMessage =
   | { type: "start" }
   | { type: "reset" }
   | { type: "end_utt" }
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; speak?: boolean; tts?: boolean }
   | { type: "audio"; pcm16: string; sr: number }
-  /**
-   * Session configuration, client → server. All fields optional.
-   *   voice:    Kokoro voice id (e.g. "af_heart") used for subsequent TTS.
-   *   open_mic: informational — client streams continuously with client-side VAD.
-   */
   | { type: "config"; voice?: string; open_mic?: boolean };
 
 export type TurnMetrics = {
@@ -21,6 +16,7 @@ export type TurnMetrics = {
   interrupted?: boolean;
   user_text?: string;
   assistant_text?: string;
+  guardrail?: string;
 };
 
 export type ServerMessage =
@@ -54,6 +50,8 @@ export type ConnectionStatus =
 
 export type OrbState = "idle" | "listening" | "processing" | "speaking";
 
+export type AppMode = "voice" | "chat";
+
 export type TranscriptEntry = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -62,17 +60,13 @@ export type TranscriptEntry = {
   ts: number;
 };
 
-/** Public Tailscale Funnel endpoint for the inference server. */
 export const PRODUCTION_WS_URL =
   "wss://desktop-re0mlgm.tail7e61ea.ts.net/ws/converse";
 
-/**
- * Default WS URL.
- * - Override anytime with NEXT_PUBLIC_ECHO_WS_URL (local: ws://127.0.0.1:8787/ws/converse)
- * - Production default is the public Funnel URL so Vercel never bakes in localhost
- *   (the classic "Not connected to server" bug).
- */
 export const DEFAULT_WS_URL =
   process.env.NEXT_PUBLIC_ECHO_WS_URL ?? PRODUCTION_WS_URL;
 
 export const TARGET_SAMPLE_RATE = 16000;
+
+export const DISCLAIMER_STORAGE_KEY = "echo.disclaimer.v1";
+export const MODE_STORAGE_KEY = "echo.mode";

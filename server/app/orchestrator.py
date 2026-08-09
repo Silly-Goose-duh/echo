@@ -1,4 +1,4 @@
-"""Turn orchestrator: STT → LLM stream → sentence TTS, with barge-in support."""
+"""Turn orchestrator: guardrails → STT → LLM stream → sentence TTS, barge-in."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import Settings, get_settings
+from .guardrails import check_message
 from .llm import build_messages, sentence_chunks, stream_chat
 from .stt import STTEngine, Transcript
 from .tts import AudioChunk, TTSEngine
@@ -24,9 +25,10 @@ class TurnResult:
     tts_first_audio_ms: float = 0.0
     total_ms: float = 0.0
     interrupted: bool = False
+    guardrail: str | None = None  # crisis | diagnosis | med | None
 
 
-# ("audio", AudioChunk) streamed per sentence, then ("done", TurnResult).
+# ("text", str) | ("audio", AudioChunk) | ("done", TurnResult)
 TurnEvent = tuple[str, Any]
 
 
@@ -41,11 +43,7 @@ class Orchestrator:
         self.stt = stt or STTEngine(self.settings)
         self.tts = tts or TTSEngine(self.settings)
         self.history: list[dict[str, str]] = []
-        # TTS voice for this session. Defaults to the server-side TTS_VOICE
-        # setting; the client may override it per-session with
-        # {"type":"config","voice":"af_heart"} over the websocket.
         self.current_voice: str = self.settings.tts_voice
-        # Informational: client streams continuously and runs its own VAD.
         self.open_mic: bool = False
 
     def load(self) -> None:
@@ -53,7 +51,6 @@ class Orchestrator:
         self.tts.load()
 
     def set_voice(self, voice: str) -> str:
-        """Set the session TTS voice; returns the voice actually in effect."""
         voice = (voice or "").strip()
         if voice:
             self.current_voice = voice
@@ -73,10 +70,12 @@ class Orchestrator:
         *,
         stt: Transcript | None = None,
         t_wall: float | None = None,
+        speak: bool = True,
     ) -> TurnResult:
-        """Blocking convenience wrapper over run_turn (scripts / handle_pcm)."""
         result: TurnResult | None = None
-        for kind, payload in self.run_turn(user_text, stt=stt, t_wall=t_wall):
+        for kind, payload in self.run_turn(
+            user_text, stt=stt, t_wall=t_wall, speak=speak
+        ):
             if kind == "done":
                 result = payload
         assert result is not None
@@ -89,13 +88,8 @@ class Orchestrator:
         stt: Transcript | None = None,
         t_wall: float | None = None,
         cancel: threading.Event | None = None,
+        speak: bool = True,
     ) -> Iterator[TurnEvent]:
-        """Stream a turn: yield ("audio", AudioChunk) per sentence as soon as
-        it is synthesized, then ("done", TurnResult) with full metrics.
-
-        `cancel` (threading.Event) aborts the turn between tokens/sentences —
-        used for server-side barge-in.
-        """
         t0 = t_wall if t_wall is not None else time.perf_counter()
         user_text = (user_text or "").strip()
         if not user_text:
@@ -112,6 +106,39 @@ class Orchestrator:
 
         def cancelled() -> bool:
             return cancel is not None and cancel.is_set()
+
+        # --- Hard guardrails BEFORE the persona LLM ---
+        guard = check_message(user_text)
+        if guard.blocked:
+            msg = guard.message
+            yield ("text", msg)
+            if speak:
+                # Speak crisis/safety replies calmly; keep TTS simple (one pass).
+                chunk = self.tts.synthesize(msg, voice=self.current_voice)
+                if chunk.pcm_float32.size:
+                    yield ("audio", chunk)
+            # Do not poison history with crisis scripts as "normal" persona turns,
+            # but keep a light marker so the model knows care was given.
+            self.history.append({"role": "user", "content": user_text})
+            self.history.append(
+                {
+                    "role": "assistant",
+                    "content": "[safety response delivered — stay supportive]",
+                }
+            )
+            if len(self.history) > 40:
+                self.history = self.history[-40:]
+            yield (
+                "done",
+                TurnResult(
+                    user_text=user_text,
+                    assistant_text=msg,
+                    stt=stt,
+                    total_ms=(time.perf_counter() - t0) * 1000,
+                    guardrail=guard.kind,
+                ),
+            )
+            return
 
         messages = build_messages(self.history, user_text, settings=self.settings)
         t_llm = time.perf_counter()
@@ -131,7 +158,6 @@ class Orchestrator:
         if self.settings.stream_tts_early:
             sentences: Iterator[str] = sentence_chunks(token_iter())
         else:
-            # Buffer the whole response, then synthesize once.
             sentences = sentence_chunks(iter(["".join(token_iter())]))
 
         tts_chunks: list[AudioChunk] = []
@@ -139,21 +165,20 @@ class Orchestrator:
         for sentence in sentences:
             if cancelled():
                 break
-            # Stream text early so the UI can caption before audio arrives.
             yield ("text", sentence)
-            chunk = self.tts.synthesize(sentence, voice=self.current_voice)
-            if tts_first == 0.0 and chunk.pcm_float32.size:
-                tts_first = (time.perf_counter() - t0) * 1000
-            tts_chunks.append(chunk)
-            if cancelled():
-                break
-            yield ("audio", chunk)
+            if speak:
+                chunk = self.tts.synthesize(sentence, voice=self.current_voice)
+                if tts_first == 0.0 and chunk.pcm_float32.size:
+                    tts_first = (time.perf_counter() - t0) * 1000
+                tts_chunks.append(chunk)
+                if cancelled():
+                    break
+                yield ("audio", chunk)
 
         assistant = "".join(collected).strip()
         if user_text and assistant:
             self.history.append({"role": "user", "content": user_text})
             self.history.append({"role": "assistant", "content": assistant})
-            # Therapy benefits from longer memory (keep ~20 turns).
             if len(self.history) > 40:
                 self.history = self.history[-40:]
 

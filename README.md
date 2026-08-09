@@ -1,51 +1,49 @@
 # Echo
 
-Local voice therapist — STT + TTS on your GPU, LLM via API, calm web UI.
+Existential thinking companion — voice or text. Local STT/TTS on GPU, LLM via API.
 
 **Live:** https://echotherapist.vercel.app
 
-## What it is
+## Modes
 
-- Tap the orb → talk → Echo answers as a calm philosopher/psychologist
-- Audio models run on your PC (RTX 5050); frontend on Vercel
-- Blue sound-wave UI, live captions, barge-in, open-mic mode
+- **Voice** — open-mic / tap-to-talk, captions, blue waveforms
+- **Chat** — type like a friend (no TTS, faster)
+
+## Persona
+
+Existential psychotherapy (Frankl, Yalom, May, Kierkegaard, Camus…).  
+Hard crisis guardrails (Tele-MANAS 14416, iCall, Vandrevala) run *before* the LLM.
+
+> Not a therapist, doctor, or crisis service. No diagnosis.
 
 ## Stack
 
 | Layer | Tech |
 |--------|------|
-| STT | Faster-Whisper (Parakeet optional) |
+| STT | Faster-Whisper |
 | TTS | Kokoro-82M |
-| LLM | OpenRouter (Claude Haiku) |
-| Server | FastAPI WebSocket `:8787` |
+| LLM | OpenRouter |
+| Server | FastAPI WebSocket |
 | Tunnel | Tailscale Funnel |
-| UI | Next.js on Vercel |
+| UI | Next.js |
 
-## Quick start
+## Run
 
 ```bash
-# Server (from repo root, with .venv)
-source .venv/Scripts/activate   # Windows git-bash
+# Server
+source .venv/Scripts/activate
 export PYTHONPATH=.
 uvicorn server.app.main:app --host 0.0.0.0 --port 8787
 
-# Detached + funnel (Windows)
+# Or Windows detached + funnel
 powershell -ExecutionPolicy Bypass -File scripts/echo_up.ps1
 
 # Frontend
 cd web && npm i && npm run dev
 ```
 
-Copy `.env.example` → `.env` and set `OPENROUTER_API_KEY`.
-
-## Layout
-
-```
-server/app/   # FastAPI, STT, TTS, LLM, orchestrator
-web/          # Next.js orb UI
-scripts/      # launcher, smokes
-```
+Copy `.env.example` → `.env` (`OPENROUTER_API_KEY`).
 
 ## License
 
-MIT (code). Models keep their own licenses.
+MIT (code). Models keep their licenses.

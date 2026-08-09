@@ -112,14 +112,16 @@ async def converse_socket(ws: WebSocket, orch: Orchestrator) -> None:
         if notify:
             await ws.send_json({"type": "interrupted"})
 
-    async def start_turn(text: str, stt: Transcript | None) -> None:
+    async def start_turn(
+        text: str, stt: Transcript | None, *, speak: bool = True
+    ) -> None:
         nonlocal turn_task, turn_cancel
         if not text.strip():
             await ws.send_json({"type": "error", "message": "empty transcript"})
             return
         turn_cancel = threading.Event()
         turn_task = asyncio.create_task(
-            _stream_turn(ws, orch, text, stt, turn_cancel)
+            _stream_turn(ws, orch, text, stt, turn_cancel, speak=speak)
         )
 
     try:
@@ -170,7 +172,11 @@ async def converse_socket(ws: WebSocket, orch: Orchestrator) -> None:
             if mtype == "text":
                 await interrupt_turn()
                 text = str(msg.get("text", "")).strip()
-                await start_turn(text, stt=None)
+                # speak=false → chat mode (text only, no TTS) for faster typing UX
+                speak = bool(msg.get("speak", True))
+                if "tts" in msg:
+                    speak = bool(msg["tts"])
+                await start_turn(text, stt=None, speak=speak)
                 continue
 
             if mtype == "end_utt":
@@ -213,19 +219,19 @@ async def _stream_turn(
     text: str,
     stt: Transcript | None,
     cancel: threading.Event,
+    *,
+    speak: bool = True,
 ) -> None:
     """Run orchestrator.run_turn in a worker thread and stream events out.
 
-    Audio chunks are forwarded to the client as soon as each sentence is
-    synthesized (stream_tts_early). If `cancel` fires, remaining events are
-    drained without sending; the barge-in handler emits {"type":"interrupted"}.
+    Audio chunks are forwarded when speak=True. Chat mode uses speak=False.
     """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Any] = asyncio.Queue()
 
     def worker() -> None:
         try:
-            for event in orch.run_turn(text, stt=stt, cancel=cancel):
+            for event in orch.run_turn(text, stt=stt, cancel=cancel, speak=speak):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:  # surface backend errors to the client
             loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
@@ -243,7 +249,6 @@ async def _stream_turn(
             if cancel.is_set():
                 continue  # interrupted: drain silently, drop queued audio
             if kind == "text":
-                # Partial assistant sentence (before / alongside TTS).
                 await ws.send_json(
                     {
                         "type": "assistant_text",
@@ -273,24 +278,21 @@ async def _stream_turn(
                             "final": True,
                         }
                     )
-                await ws.send_json(
-                    {
-                        "type": "turn_end",
-                        "metrics": {
-                            "stt_ms": stt.latency_ms if stt else None,
-                            "llm_first_token_ms": result.llm_first_token_ms,
-                            "tts_first_audio_ms": result.tts_first_audio_ms,
-                            "total_ms": result.total_ms,
-                            "interrupted": result.interrupted,
-                            "user_text": result.user_text,
-                            "assistant_text": result.assistant_text,
-                        },
-                    }
-                )
+                metrics = {
+                    "stt_ms": stt.latency_ms if stt else None,
+                    "llm_first_token_ms": result.llm_first_token_ms,
+                    "tts_first_audio_ms": result.tts_first_audio_ms,
+                    "total_ms": result.total_ms,
+                    "interrupted": result.interrupted,
+                    "user_text": result.user_text,
+                    "assistant_text": result.assistant_text,
+                }
+                if result.guardrail:
+                    metrics["guardrail"] = result.guardrail
+                await ws.send_json({"type": "turn_end", "metrics": metrics})
             elif kind == "error":
                 await ws.send_json({"type": "error", "message": str(payload)})
     except Exception:
-        # Socket likely closed mid-turn; make sure the worker unwinds.
         cancel.set()
         while True:
             leftover = await queue.get()
