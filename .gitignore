@@ -32,3 +32,8 @@ scripts/run_tunnel.ps1
 # runtime logs
 echo_*.log
 echo_*.err
+
+# frontend env (keep examples only)
+web/.env.local
+web/.env.development.local
+web/.env*.local
